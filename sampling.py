@@ -18,8 +18,8 @@ import abc
 from typing import Any, List, NamedTuple, Optional
 from graph_nets import graphs
 import numpy as np
-import tensorflow.compat.v2 as tf
-import tensorflow_probability as tfp
+# import tensorflow.compat.v2 as tf
+# import tensorflow_probability as tfp
 
 
 class Assignment(NamedTuple):

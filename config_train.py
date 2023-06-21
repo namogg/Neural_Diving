@@ -34,7 +34,7 @@ def get_light_gnn_model_config():
 def get_config():
   """Training configuration."""
   config = ml_collections.ConfigDict()
-  config.work_unit_dir = '/tmp/models/'
+  config.work_unit_dir = 'neural_lns/tmp/models'
 
   # Training config
   config.learning_rate = 1e-2
@@ -47,11 +47,11 @@ def get_config():
 
   # Each entry is a pair of (<dataset_path>, <prefix>).
   config.train_datasets = [
-      ('/tmp/neural_lns/data/example.tfrecord', 'train'),
+      ('neural_lns\data/example.tfrecord', 'train'),
   ]
 
   config.valid_datasets = [
-      ('/tmp/neural_lns/data/example.tfrecord', 'valid'),
+      ('neural_lns/data/example.tfrecord', 'valid'),
   ]
   config.model_config = get_light_gnn_model_config()
   return config

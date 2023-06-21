@@ -13,7 +13,6 @@
 # limitations under the License.
 # ============================================================================
 """Solvers used to solve MIPs."""
-
 import abc
 import collections as py_collections
 from typing import Any, Dict, Optional, Tuple
@@ -368,7 +367,7 @@ def run_solver(
 
   # Stage 1: set up a timer
   timer = calibration.Timer()
-  timer.start_and_wait()
+  #timer.start_and_wait()
 
   # Stage 2: presolve the original MIP instance
   presolver = None

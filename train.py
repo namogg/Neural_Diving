@@ -24,7 +24,8 @@ import ml_collections
 from ml_collections.config_flags import config_flags
 import sonnet as snt
 import tensorflow.compat.v2 as tf
-
+import sys 
+sys.path.append("./")
 from neural_lns import data_utils
 from neural_lns import light_gnn
 
@@ -240,7 +241,7 @@ def main(_):
       strategy=strategy,
       learning_rate=flags_config.learning_rate,
       model_dir=flags_config.work_unit_dir,
-      use_tf_function=True,
+      use_tf_function=False,
       decay_steps=flags_config.decay_steps,
       num_train_steps=flags_config.num_train_steps,
       num_train_run_steps=flags_config.num_train_run_steps,

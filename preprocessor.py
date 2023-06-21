@@ -44,8 +44,10 @@ class Preprocessor(abc.ABC):
     Returns:
       status: A Status returned by the presolver.
       result: The MPModel of the presolved problem.
+      
     """
-    raise NotImplementedError('presolve method has to be implemented')
+    self.mip_model = mip
+    return 1,mip
 
   def get_original_solution(
       self,

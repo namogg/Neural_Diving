@@ -13,16 +13,59 @@
 # limitations under the License.
 # ============================================================================
 """Common utilities for Solver."""
-
+import sys
+sys.path.append("./")
 import abc
 import enum
-from typing import Any, Dict, Optional
-
+from typing import Any, Dict, Optional, List
+import numpy as np
 import ml_collections
-
+from pyscipopt import Model, SCIP_RESULT
 from neural_lns import mip_utils
+from neural_lns import sampling
+from neural_lns import calibration
+from neural_lns import solution_data
+import scipy.sparse as sp
+import pyscipopt as scip
+from pyscipopt import Model, Eventhdlr, SCIP_RESULT, SCIP_EVENTTYPE, SCIP_PARAMSETTING, SCIP_STAGE
 
+class MyEvent(Eventhdlr):
 
+    def eventinit(self):
+        self.model.catchEvent(SCIP_EVENTTYPE.FIRSTLPSOLVED, self)
+
+    def eventexit(self):
+        self.model.dropEvent(SCIP_EVENTTYPE.FIRSTLPSOLVED, self)
+
+    def eventexec(self, event):
+        self.constraint_features, self.edge_features, self.variable_features = FeatureExtractor.extract_state(self.model)
+
+    def get_features(self):
+        return self.constraint_features, self.edge_features, self.variable_features
+class INTConverter:
+    def vtype_int(var):
+        """Retrieve the variables type (BINARY, INTEGER, IMPLINT or CONTINUOUS)"""
+        vartype = var.vtype()
+        if vartype == "BINARY":
+            return 0  # BINARY
+        elif vartype == "INTEGER":
+            return 1  # INTEGER
+        elif vartype == "CONTINUOUS":
+            return 2  # CONTINUOUS
+        elif vartype == "IMPLINT":
+            return 3  # IMPLINT
+    def getBasisStatus_int(var):
+        stat = var.getBasisStatus()
+        if stat == "lower":
+                return 0
+        elif stat == "basic":
+            return 1
+        elif stat == "upper":
+            return 2
+        elif stat == "zero":
+            return 3
+        else:
+            raise Exception('SCIP returned unknown base status!')
 class SolverState(enum.Enum):
   INIT = 0
   MODEL_LOADED = 1
@@ -37,19 +80,35 @@ class Solver(abc.ABC):
   """
 
   def load_model(self, mip: Any) -> SolverState:
-    """Loads a MIP model into the solver."""
-    raise NotImplementedError('load_model method should be implemented')
+        """Loads a MIP model into the solver."""
+        # Implement the logic to load the MIP model here
+        # You can access the MIP model using the 'mip' parameter
+        # Return the state of the solver after loading the model
+        # For example:
+        self.mip_model = mip
+        status = mip_utils.MPSolverResponseStatus.NOT_SOLVED
+        return status
 
   def solve(
       self, solving_params: ml_collections.ConfigDict
   ) -> mip_utils.MPSolverResponseStatus:
     """Solves the loaded MIP model."""
-    raise NotImplementedError('solve method should be implemented')
+    mip = solving_params.mip
+    config = solving_params.solver_config
+    sampler = solving_params.sampler
+    objective = solving_params.objective
+    sol_data = solving_params.sol_data
+    timer = solving_params.timer
+    solver = solving_params.solver
+    #sol_data, stats = solvers.run_solver(mip,config,solver)
+    #solver.solve(mip,sol_data,timer)
+    return sol_data, stats
 
   def get_best_solution(self) -> Optional[Any]:
     """Returns the best solution found from the last solve call."""
-    raise NotImplementedError('get_best_solution method should be implemented')
-
+    #raise NotImplementedError('get_best_solution method should be implemented')
+    return None
+    
   def add_solution(self, solution: Any) -> bool:
     """Adds a known solution to the solver."""
     raise NotImplementedError('add_solution method should be implemented')
@@ -57,5 +116,480 @@ class Solver(abc.ABC):
   def extract_lp_features_at_root(
       self, solving_params: ml_collections.ConfigDict) -> Dict[str, Any]:
     """Returns a dictionary of root node features."""
-    raise NotImplementedError(
-        'extract_lp_features_at_root method should be implemented')
+    mip = solving_params.mip
+    features = ml_collections.ConfigDict()
+    features["variable_features"] = FeatureExtractor.extract_variable_features(mip)
+    features['binary_variable_indices'] = FeatureExtractor.extract_binary_indice(mip)
+    features['model_maximize'] = mip.maximize
+    features['variable_names'] = FeatureExtractor.extract_name_feature
+    features['constraint_features'] = FeatureExtractor.extract_constraint_features(mip)
+    features['best_solution_labels'] = 0
+    features['variable_lbs'] = FeatureExtractor.extract_lower_bound
+    #Danh sách các cạnh
+    features['edge_indices'] = FeatureExtractor.extract_edge_indice
+    features['all_integer_variable_indices'] = FeatureExtractor.extract_integer_indice
+    features['edge_features_names'] = "coef_normalized" 
+    features['variable_feature_names'] = "Variable features:  (age,avg_inc_val,basis_status_0,basis_status_1,basis_status_2,basis_status_3,coef_normalized,has_lb,has_ub,inc_val,reduced_cost,sol_frac,sol_is_at_lb,sol_is_at_ub,sol_val,type_0,type_1,type_2,type_3']"
+    features['constraint_feature_names'] = "age,bias,dualsol_val_normalized,is_tight,obj_cosine_similarity'"
+    features['variable_ubs'] = FeatureExtractor.extract_upper_bound
+    features['edge_features'] = mip.edge_features
+    return features
+
+
+class FeatureExtractor():
+  """
+  Variable features:  (age,avg_inc_val,basis_status_0,basis_status_1,basis_status_2,basis_status_3,coef_normalized,has_lb,has_ub,inc_val,reduced_cost,sol_frac,sol_is_at_lb,sol_is_at_ub,sol_val,type_0,type_1,type_2,type_3'],
+      dtype=object)
+  Constrain features: numpy= (age,bias,dualsol_val_normalized,is_tight,obj_cosine_similarity')
+  Edge features: (coef_normalized')
+  """
+  def extract_integer_indice(mip: mip_utils.MPModel): 
+    integer_indice = []
+    for i, var in enumerate(mip.variable):
+      if var.is_integer:
+          integer_indice.append(i)
+    return integer_indice
+  
+  def extract_name_feature(mip: mip_utils.MPModel):
+    name_feature = []
+    for var in mip.variable: 
+      name_feature.append(var.name)
+    return name_feature
+  
+  def extract_binary_indice(mip: mip_utils.MPModel):
+    binary_indice = []
+    for i, var in enumerate(mip.variable):
+      if mip_utils.is_var_binary(var):
+          binary_indice.append(i)
+    return binary_indice
+  def extract_lower_bound(mip: mip_utils.MPModel):
+    lwr_bounds = []
+    for var in mip.variable: 
+      lwr_bounds.append(var.lower_bound)
+    return lwr_bounds
+
+  def extract_upper_bound(mip: mip_utils.MPModel):
+    upper_bounds = []
+    for var in mip.variable: 
+      upper_bounds.append(var.upper_bound)
+    return upper_bounds
+  
+  def extract_edge_indice(mip: mip_utils.MPModel):
+    edge_indices = []
+    for var in mip.variable: 
+      edge_indices.append(var.objective_coefficient)
+    return edge_indices
+    
+  def extract_state(model, buffer=None):
+      """
+      Compute a bipartite graph representation of the solver. In this
+      representation, the variables and constraints of the MILP are the
+      left- and right-hand side nodes, and an edge links two nodes iff the
+      variable is involved in the constraint. Both the nodes and edges carry
+      features.
+
+      Parameters
+      ----------
+      model : pyscipopt.scip.Model
+          The current model.
+      buffer : dict
+          A buffer to avoid re-extracting redundant information from the solver
+          each time.
+      Returns
+      -------
+      variable_features : dictionary of type {'names': list, 'values': np.ndarray}
+          The features associated with the variable nodes in the bipartite graph.
+      edge_features : dictionary of type ('names': list, 'indices': np.ndarray, 'values': np.ndarray}
+          The features associated with the edges in the bipartite graph.
+          This is given as a sparse matrix in COO format.
+      constraint_features : dictionary of type {'names': list, 'values': np.ndarray}
+          The features associated with the constraint nodes in the bipartite graph.
+      """
+      if buffer is None or model.getNNodes() == 1:
+          buffer = {}
+
+      # update state from buffer if any
+      s = FeatureExtractor.get_state(model)
+      #s = model.getState(buffer['scip_state'] if 'scip_state' in buffer else None)
+      buffer['scip_state'] = s
+
+      if 'state' in buffer:
+          obj_norm = buffer['state']['obj_norm']
+      else:
+          obj_norm = np.linalg.norm(s['col']['coefs'])
+          obj_norm = 1 if obj_norm <= 0 else obj_norm
+
+      row_norms = s['row']['norms']
+      row_norms[row_norms == 0] = 1
+
+      # Column features
+      n_cols = len(s['col']['types'])
+
+      if 'state' in buffer:
+          col_feats = buffer['state']['col_feats']
+      else:
+          col_feats = {}
+          col_feats['type'] = np.zeros((n_cols, 4))  # BINARY INTEGER IMPLINT CONTINUOUS
+          col_feats['type'][np.arange(n_cols), s['col']['types']] = 1
+          col_feats['coef_normalized'] = s['col']['coefs'].reshape(-1, 1) / obj_norm
+
+      col_feats['has_lb'] = ~np.isnan(s['col']['lbs']).reshape(-1, 1)
+      col_feats['has_ub'] = ~np.isnan(s['col']['ubs']).reshape(-1, 1)
+      col_feats['sol_is_at_lb'] = s['col']['sol_is_at_lb'].reshape(-1, 1)
+      col_feats['sol_is_at_ub'] = s['col']['sol_is_at_ub'].reshape(-1, 1)
+      col_feats['sol_frac'] = s['col']['solfracs'].reshape(-1, 1)
+      col_feats['sol_frac'][s['col']['types'] == 3] = 0  # continuous have no fractionality
+      col_feats['basis_status'] = np.zeros((n_cols, 4))  # LOWER BASIC UPPER ZERO
+      col_feats['basis_status'][np.arange(n_cols), s['col']['basestats']] = 1
+      col_feats['reduced_cost'] = s['col']['redcosts'].reshape(-1, 1) / obj_norm
+      col_feats['age'] = s['col']['ages'].reshape(-1, 1) / (s['stats']['nlps'] + 5)
+      col_feats['sol_val'] = s['col']['solvals'].reshape(-1, 1)
+      col_feats['inc_val'] = s['col']['incvals'].reshape(-1, 1)
+      col_feats['avg_inc_val'] = s['col']['avgincvals'].reshape(-1, 1)
+
+      col_feat_names = [[k, ] if v.shape[1] == 1 else [f'{k}_{i}' for i in range(v.shape[1])] for k, v in col_feats.items()]
+      col_feat_names = [n for names in col_feat_names for n in names]
+      col_feat_vals = np.concatenate(list(col_feats.values()), axis=-1)
+
+      variable_features = {
+          'names': col_feat_names,
+          'values': col_feat_vals,}
+
+      # Row features
+
+      if 'state' in buffer:
+          row_feats = buffer['state']['row_feats']
+          has_lhs = buffer['state']['has_lhs']
+          has_rhs = buffer['state']['has_rhs']
+      else:
+          row_feats = {}
+          has_lhs = np.nonzero(~np.isnan(s['row']['lhss']))[0]
+          has_rhs = np.nonzero(~np.isnan(s['row']['rhss']))[0]
+          row_feats['obj_cosine_similarity'] = np.concatenate((
+              -s['row']['objcossims'][has_lhs],
+              +s['row']['objcossims'][has_rhs])).reshape(-1, 1)
+          row_feats['bias'] = np.concatenate((
+              -(s['row']['lhss'] / row_norms)[has_lhs],
+              +(s['row']['rhss'] / row_norms)[has_rhs])).reshape(-1, 1)
+
+      row_feats['is_tight'] = np.concatenate((
+          s['row']['is_at_lhs'][has_lhs],
+          s['row']['is_at_rhs'][has_rhs])).reshape(-1, 1)
+
+      row_feats['age'] = np.concatenate((
+          s['row']['ages'][has_lhs],
+          s['row']['ages'][has_rhs])).reshape(-1, 1) / (s['stats']['nlps'] + 5)
+
+      # # redundant with is_tight
+      # tmp = s['row']['basestats']  # LOWER BASIC UPPER ZERO
+      # tmp[s['row']['lhss'] == s['row']['rhss']] = 4  # LOWER == UPPER for equality constraints
+      # tmp_l = tmp[has_lhs]
+      # tmp_l[tmp_l == 2] = 1  # LHS UPPER -> BASIC
+      # tmp_l[tmp_l == 4] = 2  # EQU UPPER -> UPPER
+      # tmp_l[tmp_l == 0] = 2  # LHS LOWER -> UPPER
+      # tmp_r = tmp[has_rhs]
+      # tmp_r[tmp_r == 0] = 1  # RHS LOWER -> BASIC
+      # tmp_r[tmp_r == 4] = 2  # EQU LOWER -> UPPER
+      # tmp = np.concatenate((tmp_l, tmp_r)) - 1  # BASIC UPPER ZERO
+      # row_feats['basis_status'] = np.zeros((len(has_lhs) + len(has_rhs), 3))
+      # row_feats['basis_status'][np.arange(len(has_lhs) + len(has_rhs)), tmp] = 1
+
+      tmp = s['row']['dualsols'] / (row_norms * obj_norm)
+      row_feats['dualsol_val_normalized'] = np.concatenate((
+              -tmp[has_lhs],
+              +tmp[has_rhs])).reshape(-1, 1)
+
+      row_feat_names = [[k, ] if v.shape[1] == 1 else [f'{k}_{i}' for i in range(v.shape[1])] for k, v in row_feats.items()]
+      row_feat_names = [n for names in row_feat_names for n in names]
+      row_feat_vals = np.concatenate(list(row_feats.values()), axis=-1)
+
+      constraint_features = {
+          'names': row_feat_names,
+          'values': row_feat_vals,}
+
+      # Edge features
+      if 'state' in buffer:
+          edge_row_idxs = buffer['state']['edge_row_idxs']
+          edge_col_idxs = buffer['state']['edge_col_idxs']
+          edge_feats = buffer['state']['edge_feats']
+      else:
+          coef_matrix = sp.csr_matrix(
+              (s['nzrcoef']['vals'] / row_norms[s['nzrcoef']['rowidxs']],
+              (s['nzrcoef']['rowidxs'], s['nzrcoef']['colidxs'])),
+              shape=(len(s['row']['nnzrs']), len(s['col']['types'])))
+          coef_matrix = sp.vstack((
+              -coef_matrix[has_lhs, :],
+              coef_matrix[has_rhs, :])).tocoo(copy=False)
+
+          edge_row_idxs, edge_col_idxs = coef_matrix.row, coef_matrix.col
+          edge_feats = {}
+
+          edge_feats['coef_normalized'] = coef_matrix.data.reshape(-1, 1)
+
+      edge_feat_names = [[k, ] if v.shape[1] == 1 else [f'{k}_{i}' for i in range(v.shape[1])] for k, v in edge_feats.items()]
+      edge_feat_names = [n for names in edge_feat_names for n in names]
+      edge_feat_indices = np.vstack([edge_row_idxs, edge_col_idxs])
+      edge_feat_vals = np.concatenate(list(edge_feats.values()), axis=-1)
+
+      edge_features = {
+          'names': edge_feat_names,
+          'indices': edge_feat_indices,
+          'values': edge_feat_vals,}
+
+      if 'state' not in buffer:
+          buffer['state'] = {
+              'obj_norm': obj_norm,
+              'col_feats': col_feats,
+              'row_feats': row_feats,
+              'has_lhs': has_lhs,
+              'has_rhs': has_rhs,
+              'edge_row_idxs': edge_row_idxs,
+              'edge_col_idxs': edge_col_idxs,
+              'edge_feats': edge_feats,
+          }
+
+      return constraint_features, edge_features, variable_features
+
+  def get_state(model, prev_state=None):
+    cols = model.getLPColsData()
+    rows = model.getLPRowsData()
+    ncols = model.getNLPCols()
+    nrows = model.getNLPRows()
+    update = prev_state is not None
+
+    col_types = np.empty(shape=(ncols,), dtype=np.int32)
+    col_coefs = np.empty(shape=(ncols,), dtype=np.float32)
+    col_lbs = np.empty(shape=(ncols,), dtype=np.float32)
+    col_ubs = np.empty(shape=(ncols,), dtype=np.float32)
+    col_basestats = np.empty(shape=(ncols,), dtype=np.int32)
+    col_redcosts = np.empty(shape=(ncols,), dtype=np.float32)
+    col_ages = np.empty(shape=(ncols,), dtype=np.int32)
+    col_solvals = np.empty(shape=(ncols,), dtype=np.float32)
+    col_solfracs = np.empty(shape=(ncols,), dtype=np.float32)
+    col_sol_is_at_lb = np.empty(shape=(ncols,), dtype=np.int32)
+    col_sol_is_at_ub = np.empty(shape=(ncols,), dtype=np.int32)
+    col_incvals = np.empty(shape=(ncols,), dtype=np.float32)
+    col_avgincvals = np.empty(shape=(ncols,), dtype=np.float32)
+
+    sol = model.getBestSol()
+    for i in range(ncols):
+        col_i = cols[i].getLPPos()
+        var = cols[i].getVar()
+
+        lb = cols[i].getLb()
+        ub = cols[i].getUb()
+        solval = cols[i].getPrimsol()
+
+        if not update:
+
+            # Variable type
+            col_types[col_i] = INTConverter.vtype_int(var)
+
+            # Objective coefficient
+            col_coefs[col_i] = cols[i].getObjCoeff()
+
+        # Lower bound
+        if model.isInfinity(abs(lb)):
+            col_lbs[col_i] = np.nan
+        else:
+            col_lbs[col_i] = lb
+
+        # Upper bound
+        if model.isInfinity(abs(ub)):
+            col_ubs[col_i] = np.nan
+        else:
+            col_ubs[col_i] = ub
+
+        # Basis status
+        col_basestats[col_i] = INTConverter.getBasisStatus_int(cols[i])
+
+        # Reduced cost
+        col_redcosts[col_i] = INTConverter.getBasisStatus_int(cols[i])
+
+        # Age
+        col_ages[col_i] = 0 #cols[i].age
+
+        # LP solution value
+        col_solvals[col_i] = solval
+        col_solfracs[col_i] = model.feasFrac(solval)
+        col_sol_is_at_lb[col_i] = model.isEQ(solval, lb)
+        col_sol_is_at_ub[col_i] = model.isEQ(solval, ub)
+
+        # Incumbent solution value
+        if sol is None:
+            col_incvals[col_i] = np.nan
+            col_avgincvals[col_i] = np.nan
+        else:
+            col_incvals[col_i] = model.getSolVal(sol, var)
+            col_avgincvals[col_i] = 0
+    row_lhss = np.empty(shape=(nrows,), dtype=np.float32)
+    row_rhss = np.empty(shape=(nrows,), dtype=np.float32)
+    row_nnzrs = np.empty(shape=(nrows,), dtype=np.int32)
+    row_dualsols = np.empty(shape=(nrows,), dtype=np.float32)
+    row_basestats = np.empty(shape=(nrows,), dtype=np.int32)
+    row_ages = np.empty(shape=(nrows,), dtype=np.int32)
+    row_activities = np.empty(shape=(nrows,), dtype=np.float32)
+    row_objcossims = np.empty(shape=(nrows,), dtype=np.float32)
+    row_norms = np.empty(shape=(nrows,), dtype=np.float32)
+    row_is_at_lhs = np.empty(shape=(nrows,), dtype=np.int32)
+    row_is_at_rhs = np.empty(shape=(nrows,), dtype=np.int32)
+
+    if not update:
+        row_lhss = np.empty(shape=(nrows,), dtype=np.float32)
+        row_rhss = np.empty(shape=(nrows,), dtype=np.float32)
+        row_nnzrs = np.empty(shape=(nrows,), dtype=np.int32)
+        row_dualsols = np.empty(shape=(nrows,), dtype=np.float32)
+        row_basestats = np.empty(shape=(nrows,), dtype=np.int32)
+        row_ages = np.empty(shape=(nrows,), dtype=np.int32)
+        row_activities = np.empty(shape=(nrows,), dtype=np.float32)
+        row_objcossims = np.empty(shape=(nrows,), dtype=np.float32)
+        row_norms = np.empty(shape=(nrows,), dtype=np.float32)
+        row_is_at_lhs = np.empty(shape=(nrows,), dtype=np.int32)
+        row_is_at_rhs = np.empty(shape=(nrows,), dtype=np.int32)
+        row_is_local = np.empty(shape=(nrows,), dtype=np.int32)
+        row_is_modifiable = np.empty(shape=(nrows,), dtype=np.int32)
+        row_is_removable = np.empty(shape=(nrows,), dtype=np.int32)
+    else:
+        row_lhss = prev_state['row']['lhss']
+        row_rhss = prev_state['row']['rhss']
+        row_nnzrs = prev_state['row']['nnzrs']
+        row_dualsols = prev_state['row']['dualsols']
+        row_basestats = prev_state['row']['basestats']
+        row_ages = prev_state['row']['ages']
+        row_activities = prev_state['row']['activities']
+        row_objcossims = prev_state['row']['objcossims']
+        row_norms = prev_state['row']['norms']
+        row_is_at_lhs = prev_state['row']['is_at_lhs']
+        row_is_at_rhs = prev_state['row']['is_at_rhs']
+        row_is_local = prev_state['row']['is_local']
+        row_is_modifiable = prev_state['row']['is_modifiable']
+        row_is_removable = prev_state['row']['is_removable']
+
+    nnzrs = 0
+    for i in range(nrows):
+        lhs = rows[i].getLhs()
+        rhs = rows[i].getRhs()
+        cst = rows[i].getConstant()
+        activity = model.getRowLPActivity(rows[i])
+
+        if not update:
+            row_nnzrs[i] = rows[i].getNLPNonz()
+            nnzrs += row_nnzrs[i]
+
+            if model.isInfinity(abs(lhs)):
+                row_lhss[i] = np.nan
+            else:
+                row_lhss[i] = lhs - cst
+
+            if model.isInfinity(abs(rhs)):
+                row_rhss[i] = np.nan
+            else:
+                row_rhss[i] = rhs - cst
+
+            row_is_local[i] = rows[i].isLocal()
+            row_is_modifiable[i] = rows[i].isModifiable()
+            row_is_removable[i] = rows[i].isRemovable()
+
+            # SCIPlpRecalculateObjSqrNorm(scip.set, scip.lp)
+            # prod = rows[i].sqrnorm * scip.lp.objsqrnorm
+            # row_objcossims[i] = rows[i].objprod / SQRT(prod) if SCIPisPositive(scip, prod) else 0.0
+
+            row_norms[i] = rows[i].getNorm()
+
+        row_dualsols[i] = model.getRowDualSol(rows[i])
+        row_basestats[i] = INTConverter.getBasisStatus_int(rows[i])
+        row_ages[i] = 0
+        row_activities[i] = activity - cst
+        row_is_at_lhs[i] = model.isEQ(activity, lhs)
+        row_is_at_rhs[i] = model.isEQ(activity, rhs)
+
+
+    coef_colidxs = np.empty(shape=(nnzrs,), dtype=np.int32)
+    coef_rowidxs = np.empty(shape=(nnzrs,), dtype=np.int32)
+    coef_vals = np.empty(shape=(nnzrs,), dtype=np.float32)
+
+    if not update:
+        j = 0
+        for i in range(nrows):
+            row_cols = rows[i].getCols()
+            row_vals = rows[i].getVals()
+            for k in range(row_nnzrs[i]):
+                coef_colidxs[j + k] = row_cols[k].getLPPos()
+                coef_rowidxs[j + k] = i
+                coef_vals[j + k] = row_vals[k]
+            j += row_nnzrs[i]
+    state = {
+            'col': {
+                'types':        col_types,
+                'coefs':        col_coefs,
+                'lbs':          col_lbs,
+                'ubs':          col_ubs,
+                'basestats':    col_basestats,
+                'redcosts':     col_redcosts,
+                'ages':         col_ages,
+                'solvals':      col_solvals,
+                'solfracs':     col_solfracs,
+                'sol_is_at_lb': col_sol_is_at_lb,
+                'sol_is_at_ub': col_sol_is_at_ub,
+                'incvals':      col_incvals,
+                'avgincvals':   col_avgincvals,
+            },
+            'row': {
+                'lhss':          row_lhss,
+                'rhss':          row_rhss,
+                'nnzrs':         row_nnzrs,
+                'dualsols':      row_dualsols,
+                'basestats':     row_basestats,
+                'ages':          row_ages,
+                'activities':    row_activities,
+                'objcossims':    row_objcossims,
+                'norms':         row_norms,
+                'is_at_lhs':     row_is_at_lhs,
+                'is_at_rhs':     row_is_at_rhs,
+                'is_local':      row_is_local,
+                'is_modifiable': row_is_modifiable,
+                'is_removable':  row_is_removable,
+            },
+            'nzrcoef': {
+                'colidxs': coef_colidxs,
+                'rowidxs': coef_rowidxs,
+                'vals':    coef_vals,
+            },
+            'stats': {
+                'nlps': model.getNLPs(),
+            },
+        }
+
+    return state      
+
+def Create_example_scip_model():
+    model = scip.Model()
+
+    # Add variables to the model
+    x1 = model.addVar("x1", vtype="INTEGER")
+    x2 = model.addVar("x2", vtype="CONTINUOUS")
+    x3 = model.addVar("x3", vtype="CONTINUOUS")
+    x4 = model.addVar("x4", vtype="CONTINUOUS")
+
+    # Set objective function
+    model.setObjective(3 * x1 + 2 * x2 + 4 * x3 + 5 * x4)
+
+    # Add constraints
+    model.addCons(2 * x1 + x2 + x3 <= 10, "constraint1")
+    model.addCons(x1 + x4 >= 5, "constraint2")
+    model.addCons(3 * x1 - 2 * x2 + x3 + 2 * x4 <= 8, "constraint3")
+    model.addCons(x1 + x2 + x3 + x4 >= 2, "constraint4")
+    model.addCons(x1 + x2 + x3 + x4 <= 12, "constraint5")
+
+    # Disable presolve
+    model.hideOutput()
+    model.setPresolve(SCIP_PARAMSETTING.OFF)
+    eventhdlr = MyEvent()
+
+    model.includeEventhdlr(eventhdlr, "TestFirstLPevent", "python event handler to catch FIRSTLPEVENT")
+    model.optimize()
+    constraint_features, edge_features, variable_features = eventhdlr.get_features()
+    return constraint_features, edge_features, variable_features
+
+constraint_features, edge_features, variable_features = Create_example_scip_model()
+print(variable_features["values"].shape)
