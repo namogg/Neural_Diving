@@ -129,14 +129,14 @@ def bnb_node_state_to_model_inputs(
 
   nodes = tf.concat([padded_variables, padded_constraints], axis=0)
   edge_indices = tf.concat(
-      [state['edge_indices'][:, :1] + tf.cast(n_variables, dtype=tf.int64),
+      [state['edge_indices'][:, :1] + tf.cast(n_variables, dtype=tf.int32),
        state['edge_indices'][:, 1:]], axis=1)
 
   edge_features = state['edge_features']
   node_features_dim = NUM_VARIABLE_FEATURES + _CON_FEATURE_DIM + 3
 
   graph_tuple = graphs.GraphsTuple(
-      nodes=tf.cast(tf.reshape(nodes, [-1, node_features_dim]),
+      nodes=tf.cast(tf.reshape(nodes, [-1, 27]),
                     dtype=tf.float32),
       edges=tf.cast(edge_features, dtype=tf.float32),
       globals=tf.cast(node_depth, dtype=tf.float32),
@@ -178,9 +178,9 @@ def get_graphs_tuple(state: Dict[str, Any]) -> graphs.GraphsTuple:
   """Converts feature state into GraphsTuple."""
   state_with_bounds = state.copy()
   state_with_bounds['variable_features'] = tf.concat([
-      state['variable_features'],
-      tf.expand_dims(state['variable_lbs'], -1),
-      tf.expand_dims(state['variable_ubs'], -1)
+      tf.cast(state['variable_features'], tf.float64),
+      tf.expand_dims(tf.cast(state['variable_lbs'], tf.float64), -1),
+      tf.expand_dims(tf.cast(state['variable_ubs'], tf.float64), -1)
   ], -1)
   graphs_tuple = bnb_node_state_to_model_inputs(
       state_with_bounds, node_depth=1)

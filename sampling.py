@@ -18,8 +18,9 @@ import abc
 from typing import Any, List, NamedTuple, Optional
 from graph_nets import graphs
 import numpy as np
-# import tensorflow.compat.v2 as tf
-# import tensorflow_probability as tfp
+
+import tensorflow.compat.v2 as tf
+import tensorflow_probability as tfp
 
 
 class Assignment(NamedTuple):
@@ -40,6 +41,7 @@ def sample_probas(model: Any, gt: graphs.GraphsTuple,
   Returns:
     np.ndarray of probabilities of the sample.
   """
+  node_indices = tf.convert_to_tensor(node_indices)
   _, probas = model.greedy_sample(gt, node_indices)
   return probas.numpy()
 
@@ -111,7 +113,6 @@ class RandomSampler(BaseSampler):
     """
     flattened_indices = np.squeeze(node_indices)
     num_top_vars = np.min([num_unassigned_vars, np.size(flattened_indices)])
-
     # The following gives us the indices of the variables to unassign.
     # We randomly select binary indices assuming a uniform distribution.
     top_indices = set(np.random.choice(
@@ -184,7 +185,7 @@ class RepeatedCompetitionSampler(BaseSampler):
         np.power(round_proba, probability_power, out=round_proba)
       np.divide(round_proba, round_proba.sum(), out=round_proba)
 
-      var_idx = tfp.distributions.Categorical(probs=round_proba).sample()
+      var_idx = tf.distributions.Categorical(probs=round_proba).sample()
 
       unfixed_variables.add(var_idx.numpy())
       proba[var_idx] = 0.

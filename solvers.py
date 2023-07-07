@@ -291,9 +291,9 @@ def predict_and_create_sub_mip(
   variable_lbs = features['variable_lbs']
   variable_ubs = features['variable_ubs']
   graphs_tuple = data_utils.get_graphs_tuple(features)
-
+  num_unassigned_vars = 0
   assignment = sampler.sample(graphs_tuple, var_names, variable_lbs,
-                              variable_ubs, node_indices,
+                              node_indices,num_unassigned_vars,
                               **config.sampler_config.params)
   sub_mip = mip_utils.make_sub_mip(mip, assignment)
 

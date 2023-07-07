@@ -13,7 +13,7 @@
 # limitations under the License.
 # ============================================================================
 """MIP utility functions."""
-
+import pyscipopt as scip
 import copy
 import dataclasses
 import enum
@@ -100,7 +100,42 @@ class MPSolutionResponse:
   # Result of the optimization.
   status: MPSolverResponseStatus = MPSolverResponseStatus.UNKNOWN
 
+def convert_mip_to_pyscipmodel(mip_model):
+    # Create a new SCIP model
+    model = scip.Model(mip_model.name)
 
+    # Set the objective offset
+    model.setObjective(mip_model.objective_offset, sense = "maximize" if mip_model.maximize == True else "minimize")
+
+    # Create variables
+    var_dict = {}
+    for var_data in mip_model.variable:
+        var = model.addVar(
+            lb=var_data.lower_bound,
+            ub=var_data.upper_bound,
+            obj=var_data.objective_coefficient,
+            vtype="INTEGER" if var_data.is_integer else "CONTINUOUS",
+            name=var_data.name
+        )
+        var_dict[id(var)] = var
+    print(var_dict)
+    for constraint_data in mip_model.constraint:
+        # Create an empty list to store the individual terms
+        terms = []
+        # Iterate over the var_index and coefficient attributes
+        for var_index, coefficient in zip(constraint_data.var_index, constraint_data.coefficient):
+            var_name = mip_model.variable[var_index].name
+            
+        # Ensure that the variable name exists in the var_dict
+            if var_name in var_dict:
+                var_term = coefficient * var_dict[var_name]
+                terms.append(var_term)
+            lin_expr = scip.quicksum(terms)
+        model.addCons(constraint_data.lower_bound <= (lin_expr <= constraint_data.upper_bound), name=constraint_data.name)
+    return model
+
+
+    
 def tighten_variable_bounds(mip: Any,
                             names: List[str],
                             lbs: List[float],

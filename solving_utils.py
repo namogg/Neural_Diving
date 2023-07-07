@@ -20,6 +20,7 @@ import enum
 from typing import Any, Dict, Optional, List
 import numpy as np
 import ml_collections
+import tensorflow as tf
 from pyscipopt import Model, SCIP_RESULT
 from neural_lns import mip_utils
 from neural_lns import sampling
@@ -30,7 +31,6 @@ import pyscipopt as scip
 from pyscipopt import Model, Eventhdlr, SCIP_RESULT, SCIP_EVENTTYPE, SCIP_PARAMSETTING, SCIP_STAGE
 
 class MyEvent(Eventhdlr):
-
     def eventinit(self):
         self.model.catchEvent(SCIP_EVENTTYPE.FIRSTLPSOLVED, self)
 
@@ -39,9 +39,11 @@ class MyEvent(Eventhdlr):
 
     def eventexec(self, event):
         self.constraint_features, self.edge_features, self.variable_features = FeatureExtractor.extract_state(self.model)
+        self.model.interruptSolve()
 
     def get_features(self):
-        return self.constraint_features, self.edge_features, self.variable_features
+        return self.constraint_features, self.edge_features, self.variable_features    
+
 class INTConverter:
     def vtype_int(var):
         """Retrieve the variables type (BINARY, INTEGER, IMPLINT or CONTINUOUS)"""
@@ -78,6 +80,8 @@ class Solver(abc.ABC):
   This class contains the API needed to communicate with a MIP solver, e.g.
   SCIP.
   """
+  def __init__(self):
+        self.solutions = []
 
   def load_model(self, mip: Any) -> SolverState:
         """Loads a MIP model into the solver."""
@@ -91,7 +95,7 @@ class Solver(abc.ABC):
 
   def solve(
       self, solving_params: ml_collections.ConfigDict
-  ) -> mip_utils.MPSolverResponseStatus:
+    ) -> mip_utils.MPSolverResponseStatus:
     """Solves the loaded MIP model."""
     mip = solving_params.mip
     config = solving_params.solver_config
@@ -100,39 +104,48 @@ class Solver(abc.ABC):
     sol_data = solving_params.sol_data
     timer = solving_params.timer
     solver = solving_params.solver
-    #sol_data, stats = solvers.run_solver(mip,config,solver)
-    #solver.solve(mip,sol_data,timer)
-    return sol_data, stats
+    scip_model = mip_utils.convert_mip_to_pyscipmodel(mip)
+    scip_model.optimize()
+    return scip_model
 
   def get_best_solution(self) -> Optional[Any]:
-    """Returns the best solution found from the last solve call."""
-    #raise NotImplementedError('get_best_solution method should be implemented')
-    return None
+    if self.solutions:
+        return min(self.solutions, key=lambda s: s.objective_value)
+    else:
+        raise ValueError("No solutions found")
     
   def add_solution(self, solution: Any) -> bool:
-    """Adds a known solution to the solver."""
-    raise NotImplementedError('add_solution method should be implemented')
+    # Create a dictionary to map variable names to their values
+    self.solutions.append(solution)
+    return solution
 
   def extract_lp_features_at_root(
       self, solving_params: ml_collections.ConfigDict) -> Dict[str, Any]:
     """Returns a dictionary of root node features."""
     mip = solving_params.mip
-    features = ml_collections.ConfigDict()
-    features["variable_features"] = FeatureExtractor.extract_variable_features(mip)
-    features['binary_variable_indices'] = FeatureExtractor.extract_binary_indice(mip)
+    scip_mip = mip_utils.convert_mip_to_pyscipmodel(mip)
+    handler = MyEvent()
+    scip_mip.includeEventhdlr(handler, "FIRSTLPSOLVED", "python event handler to catch FIRSTLPEVENT")
+    scip_mip.setMaximize()
+    scip_mip.setPresolve(SCIP_PARAMSETTING.OFF)
+    scip_mip.hideOutput()
+    scip_mip.optimize()
+    features = {}
+    constraint_features, edge_features,variable_features = handler.get_features()
+    features['variable_features'] = tf.convert_to_tensor(variable_features['values'], dtype=tf.float64)
+    features['binary_variable_indices'] = np.array(FeatureExtractor.extract_binary_indice(mip))
     features['model_maximize'] = mip.maximize
-    features['variable_names'] = FeatureExtractor.extract_name_feature
-    features['constraint_features'] = FeatureExtractor.extract_constraint_features(mip)
-    features['best_solution_labels'] = 0
-    features['variable_lbs'] = FeatureExtractor.extract_lower_bound
-    #Danh sách các cạnh
-    features['edge_indices'] = FeatureExtractor.extract_edge_indice
-    features['all_integer_variable_indices'] = FeatureExtractor.extract_integer_indice
-    features['edge_features_names'] = "coef_normalized" 
-    features['variable_feature_names'] = "Variable features:  (age,avg_inc_val,basis_status_0,basis_status_1,basis_status_2,basis_status_3,coef_normalized,has_lb,has_ub,inc_val,reduced_cost,sol_frac,sol_is_at_lb,sol_is_at_ub,sol_val,type_0,type_1,type_2,type_3']"
-    features['constraint_feature_names'] = "age,bias,dualsol_val_normalized,is_tight,obj_cosine_similarity'"
-    features['variable_ubs'] = FeatureExtractor.extract_upper_bound
-    features['edge_features'] = mip.edge_features
+    features['variable_names'] = tf.convert_to_tensor(FeatureExtractor.extract_name_feature(mip))
+    features['constraint_features'] = tf.convert_to_tensor(constraint_features['values'], dtype=tf.float64)
+    features['best_solution_labels'] = tf.convert_to_tensor(0, dtype=tf.float64)
+    features['variable_lbs'] = FeatureExtractor.extract_lower_bound(mip)
+    features['edge_indices'] = FeatureExtractor.extract_edge_indice(mip)
+    features['all_integer_variable_indices'] = tf.convert_to_tensor(FeatureExtractor.extract_integer_indice(mip), dtype=tf.float64)
+    features['edge_features_names'] = tf.convert_to_tensor("coef_normalized")
+    features['variable_feature_names'] = tf.convert_to_tensor("Variable features: (age, avg_inc_val, basis_status_0, basis_status_1, basis_status_2, basis_status_3, coef_normalized, has_lb, has_ub, inc_val, reduced_cost, sol_frac, sol_is_at_lb, sol_is_at_ub, sol_val, type_0, type_1, type_2, type_3')")
+    features['constraint_feature_names'] = tf.convert_to_tensor("age, bias, dualsol_val_normalized, is_tight, obj_cosine_similarity")
+    features['variable_ubs'] = tf.convert_to_tensor(FeatureExtractor.extract_upper_bound(mip))
+    features['edge_features'] = tf.convert_to_tensor(edge_features['values'], dtype=tf.float64)
     return features
 
 
@@ -162,6 +175,7 @@ class FeatureExtractor():
       if mip_utils.is_var_binary(var):
           binary_indice.append(i)
     return binary_indice
+  
   def extract_lower_bound(mip: mip_utils.MPModel):
     lwr_bounds = []
     for var in mip.variable: 
@@ -176,9 +190,10 @@ class FeatureExtractor():
   
   def extract_edge_indice(mip: mip_utils.MPModel):
     edge_indices = []
-    for var in mip.variable: 
-      edge_indices.append(var.objective_coefficient)
-    return edge_indices
+    for constraint_index,constraint in enumerate(mip.constraint):
+        for var_index in constraint.var_index:
+            edge_indices.append([constraint_index,var_index])
+    return np.array(edge_indices, dtype=np.int32)
     
   def extract_state(model, buffer=None):
       """
@@ -559,37 +574,25 @@ class FeatureExtractor():
                 'nlps': model.getNLPs(),
             },
         }
+    return state
+  
+def solve_complex_mip_example():
+    model = Model("Example")  # model name is optional
 
-    return state      
+    x_1 = model.addVar("x_1", vtype="I")
+    x_2 = model.addVar("x_2", vtype="C")
 
-def Create_example_scip_model():
-    model = scip.Model()
-
-    # Add variables to the model
-    x1 = model.addVar("x1", vtype="INTEGER")
-    x2 = model.addVar("x2", vtype="CONTINUOUS")
-    x3 = model.addVar("x3", vtype="CONTINUOUS")
-    x4 = model.addVar("x4", vtype="CONTINUOUS")
-
-    # Set objective function
-    model.setObjective(3 * x1 + 2 * x2 + 4 * x3 + 5 * x4)
-
-    # Add constraints
-    model.addCons(2 * x1 + x2 + x3 <= 10, "constraint1")
-    model.addCons(x1 + x4 >= 5, "constraint2")
-    model.addCons(3 * x1 - 2 * x2 + x3 + 2 * x4 <= 8, "constraint3")
-    model.addCons(x1 + x2 + x3 + x4 >= 2, "constraint4")
-    model.addCons(x1 + x2 + x3 + x4 <= 12, "constraint5")
-
-    # Disable presolve
-    model.hideOutput()
+    model.setObjective(7*x_1 - 9*x_2)
+    model.addCons(-1*x_1 + 3*x_2 <= 6)
+    model.addCons( 7*x_1 +   x_2 <= 35)
     model.setPresolve(SCIP_PARAMSETTING.OFF)
+    model.setMinimize() 
+    # Solve the problem
     eventhdlr = MyEvent()
-
     model.includeEventhdlr(eventhdlr, "TestFirstLPevent", "python event handler to catch FIRSTLPEVENT")
     model.optimize()
-    constraint_features, edge_features, variable_features = eventhdlr.get_features()
-    return constraint_features, edge_features, variable_features
+    print(eventhdlr.constraint_features)
+    return
 
-constraint_features, edge_features, variable_features = Create_example_scip_model()
-print(variable_features["values"].shape)
+if __name__ == "__main__":
+    solve_complex_mip_example()

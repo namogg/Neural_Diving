@@ -24,10 +24,10 @@ from neural_lns import layer_norm
 
 
 GT_SPEC = graphs.GraphsTuple(
-    nodes=tf.TensorSpec(shape=(None, 34), dtype=tf.float32, name='nodes'),
+    nodes=tf.TensorSpec(shape=(None, 27), dtype=tf.float32, name='nodes'),
     edges=tf.TensorSpec(shape=(None, 1), dtype=tf.float32, name='edges'),
-    receivers=tf.TensorSpec(shape=(None,), dtype=tf.int64, name='receivers'),
-    senders=tf.TensorSpec(shape=(None,), dtype=tf.int64, name='senders'),
+    receivers=tf.TensorSpec(shape=(None,), dtype=tf.int32, name='receivers'),
+    senders=tf.TensorSpec(shape=(None,), dtype=tf.int32, name='senders'),
     globals=tf.TensorSpec(shape=(), dtype=tf.float32, name='globals'),
     n_node=tf.TensorSpec(shape=(None,), dtype=tf.int32, name='n_node'),
     n_edge=tf.TensorSpec(shape=(None,), dtype=tf.int32, name='n_edge'))
