@@ -28,6 +28,7 @@ from neural_lns import mip_utils
 from neural_lns import preprocessor
 from neural_lns import sampling
 from neural_lns import solution_data
+from neural_lns import read_data
 from neural_lns import solving_utils
 
 
@@ -281,6 +282,7 @@ def predict_and_create_sub_mip(
   # Step 1: Extract MIP features
   features = data_utils.get_features(
       mip, solver_params=config.extract_features_scip_config)
+  #features = read_data.get_example()
   if features is None:
     logging.warn('Could not extract features from MIP: %s, skipping', mip.name)
     return mip, {}
@@ -291,14 +293,13 @@ def predict_and_create_sub_mip(
   variable_lbs = features['variable_lbs']
   variable_ubs = features['variable_ubs']
   graphs_tuple = data_utils.get_graphs_tuple(features)
-  num_unassigned_vars = 0
+  num_unassigned_vars = len(node_indices)/2
   assignment = sampler.sample(graphs_tuple, var_names, variable_lbs,
                               node_indices,num_unassigned_vars,
                               **config.sampler_config.params)
   sub_mip = mip_utils.make_sub_mip(mip, assignment)
 
-  return sub_mip
-
+  return sub_mip,assignment
 
 def predict_and_create_lns_sub_mip(
     mip: Any, sampler: sampling.BaseSampler, features: Any,
@@ -327,11 +328,14 @@ def predict_and_create_lns_sub_mip(
   var_values = np.asarray([var_name.decode() for var_name in var_names])
   graphs_tuple = data_utils.get_graphs_tuple(features)
 
+
   assignment = sampler.sample(graphs_tuple, var_names, var_values, node_indices,
                               **config.sampler_config.params)
-  sub_mip = mip_utils.make_sub_mip(mip, assignment)
-
-  return sub_mip
+  sub_mip,num_variables_tightened = mip_utils.make_sub_mip(mip, assignment)
+  stats = {}
+  stats["num_variables_tightened"] = num_variables_tightened
+  stats["num_variables_cut"] = 0
+  return sub_mip,stats
 
 
 SOLVING_AGENT_DICT = {
@@ -339,7 +343,6 @@ SOLVING_AGENT_DICT = {
     'neural_diving': NeuralDivingSolver,
     'neural_ns': NeuralNSSolver,
 }
-
 
 def run_solver(
     mip: Any, solver_running_config: ml_collections.ConfigDict,
@@ -388,7 +391,6 @@ def run_solver(
 
   # Stage 4: Solve MIP
   sol_data, solve_stats = solver.solve(presolved_mip, sol_data, timer)
-
   timer.terminate_and_wait()
   solve_stats['elapsed_time_seconds'] = timer.elapsed_real_time
   solve_stats['elapsed_time_calibrated'] = timer.elapsed_calibrated_time

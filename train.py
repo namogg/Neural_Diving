@@ -103,7 +103,7 @@ def train_and_evaluate(
 
       # We log AUC and ACC by comparing the greedy sample (always choose the
       # value with highest probability) with the best solution.
-      _, proba = model.greedy_sample(ds_tuple.graphs_tuple,
+      _,_, proba = model.greedy_sample(ds_tuple.graphs_tuple,
                                      ds_tuple.integer_node_indices)
       proba = tf.reshape(proba, [-1])
 
@@ -154,7 +154,7 @@ def train_and_evaluate(
 
       # We log AUC and ACC by comparing the greedy sample (always choose the
       # value with highest probability) with the best solution.
-      _, proba = model.greedy_sample(ds_tuple.graphs_tuple,
+      _,_, proba = model.greedy_sample(ds_tuple.graphs_tuple,
                                      ds_tuple.integer_node_indices)
       proba = tf.reshape(proba, [-1])
       best_label = tf.reshape(ds_tuple.integer_labels[:, 0, :], [-1])

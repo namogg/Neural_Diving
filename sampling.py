@@ -42,7 +42,7 @@ def sample_probas(model: Any, gt: graphs.GraphsTuple,
     np.ndarray of probabilities of the sample.
   """
   node_indices = tf.convert_to_tensor(node_indices)
-  _, probas = model.greedy_sample(gt, node_indices)
+  logit,sample,probas = model.greedy_sample(gt, node_indices)
   return probas.numpy()
 
 
@@ -134,12 +134,14 @@ class RandomSampler(BaseSampler):
         var_names_to_assign.append(var_name)
         var_values_to_assign.append(val)
 
+    
     return Assignment(
         var_names_to_assign, var_values_to_assign, var_values_to_assign)
 
 
 class RepeatedCompetitionSampler(BaseSampler):
-  """Sampler that repeatedly samples from the topK not yet unassigned variables.
+  """
+  Sampler that repeatedly samples from the topK not yet unassigned variables.
   """
 
   def __init__(self, model_path: str):
@@ -169,13 +171,13 @@ class RepeatedCompetitionSampler(BaseSampler):
     Returns:
       Sampler's assignment.
     """
+    tf.config.run_functions_eagerly(True) 
     proba = sample_probas(self.model, graphs_tuple, node_indices)
     proba = np.squeeze(proba) + eps
-
     num_top_vars = np.min([num_unassigned_vars, len(proba)])
 
     unfixed_variables = set()
-    for _ in range(num_top_vars):
+    for _ in range(int(num_top_vars)):
       # NB `proba` has the probabilities for the variables corresponding to
       # `node_indices` only. So the result of `argsort` gives us the indices of
       # the right indices in `node_indices`.
@@ -185,8 +187,7 @@ class RepeatedCompetitionSampler(BaseSampler):
         np.power(round_proba, probability_power, out=round_proba)
       np.divide(round_proba, round_proba.sum(), out=round_proba)
 
-      var_idx = tf.distributions.Categorical(probs=round_proba).sample()
-
+      var_idx = tfp.distributions.Categorical(probs=round_proba).sample()
       unfixed_variables.add(var_idx.numpy())
       proba[var_idx] = 0.
 

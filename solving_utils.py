@@ -21,30 +21,28 @@ from typing import Any, Dict, Optional, List
 import numpy as np
 import ml_collections
 import tensorflow as tf
-from pyscipopt import Model, SCIP_RESULT
+
 from neural_lns import mip_utils
-from neural_lns import sampling
-from neural_lns import calibration
-from neural_lns import solution_data
+
 import scipy.sparse as sp
-import pyscipopt as scip
-from pyscipopt import Model, Eventhdlr, SCIP_RESULT, SCIP_EVENTTYPE, SCIP_PARAMSETTING, SCIP_STAGE
+from pyscipopt import  Eventhdlr, SCIP_EVENTTYPE, SCIP_STATUS, SCIP_PARAMSETTING
 
 class MyEvent(Eventhdlr):
     def eventinit(self):
-        self.model.catchEvent(SCIP_EVENTTYPE.FIRSTLPSOLVED, self)
+        self.model.catchEvent(SCIP_EVENTTYPE.NODEBRANCHED, self)
 
     def eventexit(self):
-        self.model.dropEvent(SCIP_EVENTTYPE.FIRSTLPSOLVED, self)
+        self.model.dropEvent(SCIP_EVENTTYPE.NODEBRANCHED, self)
 
     def eventexec(self, event):
-        self.constraint_features, self.edge_features, self.variable_features = FeatureExtractor.extract_state(self.model)
+        self.constraint_features, self.edge_features, self.variable_features, self.edge_indices = FeatureExtractor.extract_state(self.model)
         self.model.interruptSolve()
 
     def get_features(self):
-        return self.constraint_features, self.edge_features, self.variable_features    
+        return self.constraint_features, self.edge_features, self.variable_features ,self.edge_indices   
+    
 
-class INTConverter:
+class Converter:
     def vtype_int(var):
         """Retrieve the variables type (BINARY, INTEGER, IMPLINT or CONTINUOUS)"""
         vartype = var.vtype()
@@ -68,6 +66,20 @@ class INTConverter:
             return 3
         else:
             raise Exception('SCIP returned unknown base status!')
+    def map_status(status):
+        status_mapping = {
+            mip_utils.MPSolverResponseStatus.OPTIMAL: SCIP_STATUS.OPTIMAL,
+            mip_utils.MPSolverResponseStatus.FEASIBLE: SCIP_STATUS.UNKNOWN,  # Thay đổi thành giá trị phù hợp nếu cần
+            mip_utils.MPSolverResponseStatus.NOT_SOLVED: SCIP_STATUS.UNKNOWN,
+            mip_utils.MPSolverResponseStatus.INFEASIBLE: SCIP_STATUS.INFEASIBLE,
+            mip_utils.MPSolverResponseStatus.UNBOUNDED: SCIP_STATUS.UNBOUNDED,
+            mip_utils.MPSolverResponseStatus.INFEASIBLE_OR_UNBOUNDED: SCIP_STATUS.INFEASIBLE_OR_UNBOUNDED,
+            mip_utils.MPSolverResponseStatus.STOPPED: SCIP_STATUS.UNKNOWN,
+            mip_utils.MPSolverResponseStatus.UNKNOWN: SCIP_STATUS.UNKNOWN,
+            mip_utils.MPSolverResponseStatus.FAILED: SCIP_STATUS.UNKNOWN,
+            mip_utils.MPSolverResponseStatus.BESTSOLLIMIT: SCIP_STATUS.BESTSOLLIMIT
+        }
+        return status_mapping.get(status, SCIP_STATUS.UNKNOWN)
 class SolverState(enum.Enum):
   INIT = 0
   MODEL_LOADED = 1
@@ -93,45 +105,49 @@ class Solver(abc.ABC):
         status = mip_utils.MPSolverResponseStatus.NOT_SOLVED
         return status
 
+  
   def solve(
       self, solving_params: ml_collections.ConfigDict
     ) -> mip_utils.MPSolverResponseStatus:
     """Solves the loaded MIP model."""
-    mip = solving_params.mip
-    config = solving_params.solver_config
-    sampler = solving_params.sampler
-    objective = solving_params.objective
-    sol_data = solving_params.sol_data
-    timer = solving_params.timer
-    solver = solving_params.solver
-    scip_model = mip_utils.convert_mip_to_pyscipmodel(mip)
-    scip_model.optimize()
-    return scip_model
-
+    scip_mip = solving_params.scip_mip
+    #scip_mip.dropEvent(SCIP_EVENTTYPE.FIRSTLPSOLVED,handler)
+    scip_mip.solveConcurrent()
+    status = scip_mip.getStatus()
+    solutions = scip_mip.getSols()
+    for sol in solutions: 
+        self.add_solution(sol, scip_mip.getObjVal(sol))
+    # Trả về status và lời giải tốt nhất
+    return Converter.map_status(status)
+  
   def get_best_solution(self) -> Optional[Any]:
     if self.solutions:
-        return min(self.solutions, key=lambda s: s.objective_value)
+        # Tìm lời giải tốt nhất dựa trên giá trị hàm mục tiêu
+        best_solution, _ = min(self.solutions, key=lambda s: s[1])
+        return best_solution
     else:
         raise ValueError("No solutions found")
     
-  def add_solution(self, solution: Any) -> bool:
+  def add_solution(self, solution: Any, ) -> bool:
     # Create a dictionary to map variable names to their values
-    self.solutions.append(solution)
+    self.solutions.append((solution, solution.objective_value))
     return solution
 
   def extract_lp_features_at_root(
       self, solving_params: ml_collections.ConfigDict) -> Dict[str, Any]:
     """Returns a dictionary of root node features."""
     mip = solving_params.mip
-    scip_mip = mip_utils.convert_mip_to_pyscipmodel(mip)
+    scip_mip = solving_params.scip_mip
+    
+    
+    scip_mip.setPresolve(SCIP_PARAMSETTING.OFF)
+    #scip_mip.hideOutput()
+    #scip_mip.presolve()
     handler = MyEvent()
     scip_mip.includeEventhdlr(handler, "FIRSTLPSOLVED", "python event handler to catch FIRSTLPEVENT")
-    scip_mip.setMaximize()
-    scip_mip.setPresolve(SCIP_PARAMSETTING.OFF)
-    scip_mip.hideOutput()
     scip_mip.optimize()
     features = {}
-    constraint_features, edge_features,variable_features = handler.get_features()
+    constraint_features, edge_features,variable_features, edge_indices = handler.get_features()
     features['variable_features'] = tf.convert_to_tensor(variable_features['values'], dtype=tf.float64)
     features['binary_variable_indices'] = np.array(FeatureExtractor.extract_binary_indice(mip))
     features['model_maximize'] = mip.maximize
@@ -139,7 +155,7 @@ class Solver(abc.ABC):
     features['constraint_features'] = tf.convert_to_tensor(constraint_features['values'], dtype=tf.float64)
     features['best_solution_labels'] = tf.convert_to_tensor(0, dtype=tf.float64)
     features['variable_lbs'] = FeatureExtractor.extract_lower_bound(mip)
-    features['edge_indices'] = FeatureExtractor.extract_edge_indice(mip)
+    features['edge_indices'] = FeatureExtractor.extract_edge_indice(edge_indices)
     features['all_integer_variable_indices'] = tf.convert_to_tensor(FeatureExtractor.extract_integer_indice(mip), dtype=tf.float64)
     features['edge_features_names'] = tf.convert_to_tensor("coef_normalized")
     features['variable_feature_names'] = tf.convert_to_tensor("Variable features: (age, avg_inc_val, basis_status_0, basis_status_1, basis_status_2, basis_status_3, coef_normalized, has_lb, has_ub, inc_val, reduced_cost, sol_frac, sol_is_at_lb, sol_is_at_ub, sol_val, type_0, type_1, type_2, type_3')")
@@ -151,7 +167,7 @@ class Solver(abc.ABC):
 
 class FeatureExtractor():
   """
-  Variable features:  (age,avg_inc_val,basis_status_0,basis_status_1,basis_status_2,basis_status_3,coef_normalized,has_lb,has_ub,inc_val,reduced_cost,sol_frac,sol_is_at_lb,sol_is_at_ub,sol_val,type_0,type_1,type_2,type_3'],
+  Variable features: (age,avg_inc_val,basis_status_0,basis_status_1,basis_status_2,basis_status_3,coef_normalized,has_lb,has_ub,inc_val,reduced_cost,sol_frac,sol_is_at_lb,sol_is_at_ub,sol_val,type_0,type_1,type_2,type_3'],
       dtype=object)
   Constrain features: numpy= (age,bias,dualsol_val_normalized,is_tight,obj_cosine_similarity')
   Edge features: (coef_normalized')
@@ -194,6 +210,24 @@ class FeatureExtractor():
         for var_index in constraint.var_index:
             edge_indices.append([constraint_index,var_index])
     return np.array(edge_indices, dtype=np.int32)
+    
+  def extract_edge_indice(edge_indices):
+    # edge_indices = []
+    # index_map = {}
+    # for index, var in enumerate(model.getVars()):
+    #     index_map[var.name] = index
+    # # Iterate over constraints in the model
+    # for constraint_index, constraint in enumerate(model.getConss()):
+    #     for key in model.getValsLinear(constraint).keys():
+    #         # Get the variables related to the constraint
+    #         variables_index = index_map[key]
+    #         edge_indices.append([constraint_index, variables_index])
+    if len(edge_indices) > 0:
+        edge_indices_np = np.array(edge_indices, dtype=np.int32)
+    else:
+        # Create an empty NumPy array with the desired shape
+        edge_indices_np = np.empty((0, 2), dtype=np.int32)
+    return np.transpose(edge_indices_np)
     
   def extract_state(model, buffer=None):
       """
@@ -247,7 +281,13 @@ class FeatureExtractor():
           col_feats['type'] = np.zeros((n_cols, 4))  # BINARY INTEGER IMPLINT CONTINUOUS
           col_feats['type'][np.arange(n_cols), s['col']['types']] = 1
           col_feats['coef_normalized'] = s['col']['coefs'].reshape(-1, 1) / obj_norm
-
+      col_feats['empty_1'] = np.empty((n_cols, 1))
+      col_feats['empty_2'] = np.empty((n_cols, 1))
+      col_feats['empty_3'] = np.empty((n_cols, 1))
+      col_feats['empty_4'] = np.empty((n_cols, 1))
+      col_feats['empty_5'] = np.empty((n_cols, 1))
+      col_feats['empty_6'] = np.empty((n_cols, 1))
+      col_feats['empty_7'] = np.empty((n_cols, 1))
       col_feats['has_lb'] = ~np.isnan(s['col']['lbs']).reshape(-1, 1)
       col_feats['has_ub'] = ~np.isnan(s['col']['ubs']).reshape(-1, 1)
       col_feats['sol_is_at_lb'] = s['col']['sol_is_at_lb'].reshape(-1, 1)
@@ -363,7 +403,7 @@ class FeatureExtractor():
               'edge_feats': edge_feats,
           }
 
-      return constraint_features, edge_features, variable_features
+      return constraint_features, edge_features, variable_features, edge_feat_indices
 
   def get_state(model, prev_state=None):
     cols = model.getLPColsData()
@@ -398,7 +438,7 @@ class FeatureExtractor():
         if not update:
 
             # Variable type
-            col_types[col_i] = INTConverter.vtype_int(var)
+            col_types[col_i] = Converter.vtype_int(var)
 
             # Objective coefficient
             col_coefs[col_i] = cols[i].getObjCoeff()
@@ -416,10 +456,10 @@ class FeatureExtractor():
             col_ubs[col_i] = ub
 
         # Basis status
-        col_basestats[col_i] = INTConverter.getBasisStatus_int(cols[i])
+        col_basestats[col_i] = Converter.getBasisStatus_int(cols[i])
 
         # Reduced cost
-        col_redcosts[col_i] = INTConverter.getBasisStatus_int(cols[i])
+        col_redcosts[col_i] = Converter.getBasisStatus_int(cols[i])
 
         # Age
         col_ages[col_i] = 0 #cols[i].age
@@ -512,7 +552,7 @@ class FeatureExtractor():
             row_norms[i] = rows[i].getNorm()
 
         row_dualsols[i] = model.getRowDualSol(rows[i])
-        row_basestats[i] = INTConverter.getBasisStatus_int(rows[i])
+        row_basestats[i] = Converter.getBasisStatus_int(rows[i])
         row_ages[i] = 0
         row_activities[i] = activity - cst
         row_is_at_lhs[i] = model.isEQ(activity, lhs)
@@ -575,24 +615,3 @@ class FeatureExtractor():
             },
         }
     return state
-  
-def solve_complex_mip_example():
-    model = Model("Example")  # model name is optional
-
-    x_1 = model.addVar("x_1", vtype="I")
-    x_2 = model.addVar("x_2", vtype="C")
-
-    model.setObjective(7*x_1 - 9*x_2)
-    model.addCons(-1*x_1 + 3*x_2 <= 6)
-    model.addCons( 7*x_1 +   x_2 <= 35)
-    model.setPresolve(SCIP_PARAMSETTING.OFF)
-    model.setMinimize() 
-    # Solve the problem
-    eventhdlr = MyEvent()
-    model.includeEventhdlr(eventhdlr, "TestFirstLPevent", "python event handler to catch FIRSTLPEVENT")
-    model.optimize()
-    print(eventhdlr.constraint_features)
-    return
-
-if __name__ == "__main__":
-    solve_complex_mip_example()

@@ -118,7 +118,6 @@ def convert_mip_to_pyscipmodel(mip_model):
             name=var_data.name
         )
         var_dict[id(var)] = var
-    print(var_dict)
     for constraint_data in mip_model.constraint:
         # Create an empty list to store the individual terms
         terms = []
@@ -151,9 +150,10 @@ def tighten_variable_bounds(mip: Any,
   if len(names) != len(lbs) or len(lbs) != len(ubs):
     raise ValueError(
         "Names, lower and upper bounds should have the same length")
-
+  # Convert the list of tensors to a list of strings
+  name_list = [name.numpy().decode("utf-8") for name in names]
   name_to_bounds = {}
-  for name, lb, ub in zip(names, lbs, ubs):
+  for name, lb, ub in zip(name_list, lbs, ubs):
     name = name.decode() if isinstance(name, bytes) else name
     name_to_bounds[name] = (lb, ub)
 
@@ -167,6 +167,7 @@ def tighten_variable_bounds(mip: Any,
       c += 1
 
   logging.info("Tightened %s vars", c)
+  return c
 
 
 def is_var_binary(variable: Any) -> bool:
@@ -231,7 +232,50 @@ def add_binary_invalid_cut(mip: Any,
 
 def make_sub_mip(mip: Any, assignment: sampling.Assignment):
   """Creates a sub-MIP by tightening variables and applying cut."""
-  sub_mip = copy.deepcopy(mip)
-  tighten_variable_bounds(sub_mip, assignment.names,
+  sub_mip = mip
+  num_tightened_var = tighten_variable_bounds(sub_mip, assignment.names,
                           assignment.lower_bounds, assignment.upper_bounds)
-  return sub_mip
+  
+  return sub_mip,num_tightened_var
+
+def read_lp(lp_file_path) -> MPModel:
+    # Tạo một đối tượng SCIP model và đọc tệp LP
+    model = scip.Model()
+    model.readProblem(lp_file_path)
+    return model
+
+def convert_pyscipmodel_to_mip(scip_model):
+    # Create an empty MPModel
+    mip_model = MPModel(name=scip_model.getProbName())
+
+    # Set the objective offset and direction
+    #objective_offset = scip_model.getObjective()
+    maximize = scip_model.getObjectiveSense() == "maximize"
+    #mip_model.objective_offset = objective_offset
+    mip_model.maximize = maximize
+    index_map = {}
+    # Create MPVariables
+    for index, var in enumerate(scip_model.getVars()):
+        mp_var = MPVariable(
+            lower_bound=var.getLbLocal(),
+            upper_bound=var.getUbLocal(),
+            objective_coefficient=var.getObj(),
+            is_integer=1 if var.vtype() in ["BINARY","INTEGER"] else 0,
+            name=var.name
+        )
+        mip_model.variable.append(mp_var)
+        #Save an
+        index_map[var.name] = index
+    # Create MPConstraints
+    for constraint in scip_model.getConss():
+      mp_constraint = MPConstraint(
+            var_index=[index_map[var_name] for var_name in scip_model.getValsLinear(constraint).keys()],
+            coefficient=list(scip_model.getValsLinear(constraint).values()),
+            lower_bound=scip_model.getLhs(constraint),
+            upper_bound=scip_model.getRhs(constraint),
+            name=constraint
+        )
+      mip_model.constraint.append(mp_constraint)
+
+    return mip_model
+

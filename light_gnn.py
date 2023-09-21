@@ -19,19 +19,26 @@ from typing import List
 from graph_nets import graphs
 import sonnet as snt
 import tensorflow.compat.v2 as tf
-
+import sys 
+sys.path.append("./")
 from neural_lns import layer_norm
 
-
+# GT_SPEC = graphs.GraphsTuple(
+#     nodes=tf.TensorSpec(shape=(None, 34), dtype=tf.float32, name='nodes'),
+#     edges=tf.TensorSpec(shape=(None, 1), dtype=tf.float32, name='edges'),
+#     receivers=tf.TensorSpec(shape=(None,), dtype=tf.int32, name='receivers'),
+#     senders=tf.TensorSpec(shape=(None,), dtype=tf.int32, name='senders'),
+#     globals=tf.TensorSpec(shape=(), dtype=tf.float32, name='globals'),
+#     n_node=tf.TensorSpec(shape=(None,), dtype=tf.int32, name='n_node'),
+#     n_edge=tf.TensorSpec(shape=(None,), dtype=tf.int32, name='n_edge'))
 GT_SPEC = graphs.GraphsTuple(
-    nodes=tf.TensorSpec(shape=(None, 27), dtype=tf.float32, name='nodes'),
+    nodes=tf.TensorSpec(shape=(None, 34), dtype=tf.float32, name='nodes'),
     edges=tf.TensorSpec(shape=(None, 1), dtype=tf.float32, name='edges'),
-    receivers=tf.TensorSpec(shape=(None,), dtype=tf.int32, name='receivers'),
-    senders=tf.TensorSpec(shape=(None,), dtype=tf.int32, name='senders'),
+    receivers=tf.TensorSpec(shape=(None,), dtype=tf.int64, name='receivers'),
+    senders=tf.TensorSpec(shape=(None,), dtype=tf.int64, name='senders'),
     globals=tf.TensorSpec(shape=(), dtype=tf.float32, name='globals'),
     n_node=tf.TensorSpec(shape=(None,), dtype=tf.int32, name='n_node'),
     n_edge=tf.TensorSpec(shape=(None,), dtype=tf.int32, name='n_edge'))
-
 
 def get_adjacency_matrix(graph: graphs.GraphsTuple) -> tf.SparseTensor:
   upper = tf.stack([graph.senders, graph.receivers], axis=1)
@@ -108,10 +115,12 @@ class LightGNN(snt.Module):
                    is_training: bool) -> tf.Tensor:
     self._initialize()
     adj = get_adjacency_matrix(graph)
+    tf.print("adj:", adj)
     nodes = self._input_embedding_model(graph.nodes)
     for layer in self._layers:
       nodes = layer(nodes, adj, is_training=is_training)
-
+      tf.print("nodes:", nodes)
+    
     return nodes
 
   def __call__(self,
@@ -134,6 +143,13 @@ class LightGNN(snt.Module):
       tf.TensorSpec(shape=(None,), dtype=tf.int32, name='node_indices')
   ])
   def greedy_sample(self, graph, node_indices):
+    nodes = self.encode_graph(graph, False)
+    logits = self.output_model(nodes)
+    probas = tf.math.sigmoid(tf.gather(logits, node_indices))
+    sample = tf.round(probas)
+    return logits,sample, probas
+  
+  def sample(self, graph, node_indices):
     nodes = self.encode_graph(graph, False)
     logits = self.output_model(nodes)
     probas = tf.math.sigmoid(tf.gather(logits, node_indices))
@@ -178,10 +194,14 @@ class NeuralLnsLightGNN(LightGNN):
   def greedy_sample(self, graph, node_indices):
     nodes = self.encode_graph(graph, False)
     logits = self.output_model(nodes)
+    tf.print(logits)
     probas = tf.math.sigmoid(tf.gather(logits, node_indices))
     sample = tf.round(probas)
-    return sample, probas
-
+    return logits,sample,probas
+  # @tf.function(input_signature=[
+  #     GT_SPEC,
+  #     tf.TensorSpec(shape=(None,), dtype=tf.int32, name='node_indices')
+  # ])
   @tf.function(input_signature=[
       GT_SPEC,
       tf.TensorSpec(shape=(None,), dtype=tf.int32),

@@ -126,22 +126,23 @@ def bnb_node_state_to_model_inputs(
       state['constraint_features'],
       [[0, 0], [variable_feature_dim, _INDICATOR_DIM]],
       'CONSTANT')  # + variable_feature_dim + 1
-
+  padded_variables = tf.cast(padded_variables,dtype = tf.float64)
+  padded_constraints = tf.cast(padded_constraints,dtype = tf.float64)
   nodes = tf.concat([padded_variables, padded_constraints], axis=0)
   edge_indices = tf.concat(
-      [state['edge_indices'][:, :1] + tf.cast(n_variables, dtype=tf.int32),
+      [state['edge_indices'][:, :1] + tf.cast(n_variables, dtype=tf.int64),
        state['edge_indices'][:, 1:]], axis=1)
 
   edge_features = state['edge_features']
   node_features_dim = NUM_VARIABLE_FEATURES + _CON_FEATURE_DIM + 3
 
   graph_tuple = graphs.GraphsTuple(
-      nodes=tf.cast(tf.reshape(nodes, [-1, 27]),
+      nodes=tf.cast(tf.reshape(nodes, [-1, node_features_dim]),
                     dtype=tf.float32),
       edges=tf.cast(edge_features, dtype=tf.float32),
       globals=tf.cast(node_depth, dtype=tf.float32),
-      receivers=edge_indices[:, 0],  # constraint
-      senders=edge_indices[:, 1],  # variables
+      receivers= tf.cast(edge_indices[:, 0],dtype = tf.int64),  # constraint
+      senders=tf.cast(edge_indices[:, 1],dtype = tf.int64),  # variables
       n_node=tf.reshape(n_nodes, [1]),
       n_edge=tf.reshape(tf.shape(state['edge_features'])[0], [1]))
   return graph_tuple
