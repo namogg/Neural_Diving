@@ -1,6 +1,6 @@
 wheel
 absl-py==1.4.0
-ml_collections==0.1.1á
+ml_collections
 numpy==1.23.1
 dm-sonnet==2.0.0
 tensorflow==2.12.0
