@@ -1,15 +1,10 @@
-# Learning a Large Neighborhood Search Algorithm for Mixed Integer Programs
+# An implementation of Neural Diving 
 
 ### Overview
 
-This release contains the key components of the Neural Neighbourhood Selection
-approach, as described in the paper. The provided code implements the main
-components of the approach, covering data generation, training, and inference.
-We also provide interfaces that are left to be implemented by the user so that
-the code can be flexibly used in different contexts.
+This project implement Neural Diving model from DeepMind to solve large scale MIP.
 
-The following gives a brief overview of the contents; more detailed
-documentation is available within each file:
+Overview of the component
 
 *   __calibration.py__: Abstract timer for MIP solving.
 *   __config_train.py__: Configuration file for training parameters.
@@ -55,21 +50,3 @@ pip install -r requirements.txt
    cd <parent-directory-of-neural_lns>
    python3 -m neural_lns.train
    ```
-
-
-## Citing this work
-
-Paper: [Learning a Large Neighborhood Search Algorithm for Mixed Integer Programs](https://arxiv.org/pdf/2107.10201.pdf)
-
-If you use the code here please cite this paper:
-
-    @article{sonnerat2021learning,
-      title={Learning a Large Neighborhood Search Algorithm for Mixed Integer Programs},
-      author={Sonnerat, Nicolas and Wang, Pengming and Ktena, Ira and Bartunov, Sergey and Nair, Vinod},
-      journal={arXiv preprint arXiv:2107.10201},
-      year={2021}
-    }
-
-## Disclaimer
-
-This is not an official Google product.
