@@ -82,15 +82,16 @@ class NeuralDivingSolver(BaseSolver):
       self, mip: Any, sol_data: solution_data.BaseSolutionData,
       timer: calibration.Timer
   ) -> Tuple[solution_data.BaseSolutionData, Dict[str, Any]]:
-    sub_mip, stats = predict_and_create_sub_mip(
+    stats = {}
+    sub_mip, stats["assignment"] = predict_and_create_sub_mip(
         mip, self._sampler, self._solver_config.predict_config)
     status, sol_data, sub_mip_sol = scip_solve(
         sub_mip, self._solver_config.scip_solver_config, sol_data, timer)
     if self._solver_config.enable_restart:
+      print(self._solver_config.enable_restart)
       status, sol_data, _ = scip_solve(
           mip, self._solver_config.restart_scip_solver_config, sol_data, timer,
           sub_mip_sol)
-
     stats['solution_status'] = str(status)
     return sol_data, stats
 
@@ -292,9 +293,11 @@ def predict_and_create_sub_mip(
   var_names = features['variable_names']
   variable_lbs = features['variable_lbs']
   variable_ubs = features['variable_ubs']
+  #var_values = features["variable_features"][:,14]
+  var_values = sampler.get_sample(mip, graphs_tuple, node_indices)
   graphs_tuple = data_utils.get_graphs_tuple(features)
   num_unassigned_vars = len(node_indices)/2
-  assignment = sampler.sample(graphs_tuple, var_names, variable_lbs,
+  assignment = sampler.sample(graphs_tuple, var_names, var_values,
                               node_indices,num_unassigned_vars,
                               **config.sampler_config.params)
   sub_mip = mip_utils.make_sub_mip(mip, assignment)
@@ -326,6 +329,7 @@ def predict_and_create_lns_sub_mip(
   node_indices = features['binary_variable_indices']
   var_names = features['variable_names']
   var_values = np.asarray([var_name.decode() for var_name in var_names])
+  print(var_values)
   graphs_tuple = data_utils.get_graphs_tuple(features)
 
 
@@ -335,6 +339,7 @@ def predict_and_create_lns_sub_mip(
   stats = {}
   stats["num_variables_tightened"] = num_variables_tightened
   stats["num_variables_cut"] = 0
+  stats['solution_status'] = ""
   return sub_mip,stats
 
 

@@ -21,20 +21,6 @@ tf.config.run_functions_eagerly(True)
 def get_mip(path):
     scip_model = mip_utils.read_lp(path)
     mip = mip_utils.convert_pyscipmodel_to_mip(scip_model)
-
-    # mip = mip_utils.MPModel()
-
-    # # Variables
-    # var1 = mip_utils.MPVariable(lower_bound=0, upper_bound=1, objective_coefficient=7, is_integer=True, name="var1")
-    # var2 = mip_utils.MPVariable(lower_bound=-math.inf, upper_bound=math.inf, objective_coefficient=-9, is_integer=False, name="var2")
-    # mip.variable.extend([var1, var2])
-
-    # # Constraints
-    # constraint1 = mip_utils.MPConstraint(var_index=[0, 1], coefficient=[-1, 3], lower_bound=-math.inf, upper_bound=6, name="constraint1")
-    # constraint2 = mip_utils.MPConstraint(var_index=[0, 1], coefficient=[7, 1], lower_bound=-math.inf, upper_bound=35, name="constraint2")
-    # mip.constraint.extend([constraint1, constraint2])
-
-    # mip.maximize = True
     return mip,scip_model
 """
 Get config
@@ -92,16 +78,16 @@ def configure_solver(mip) -> ml_collections.ConfigDict:
 def main():
     mip,scip_mip = get_mip("E:/benchmark/30n20b8.mps")
     #scip_mip.setPresolve(SCIP_PARAMSETTING.OFF)
+    #scip_mip.setIntParam("limits/solutions", 1)
     #scip_mip.optimize()
-    #scip_mip.solveConcurrent()
-    print(scip_mip.getStatus())
+    #scip_mip.setIntParam("parallel/maxnthreads", 12)
     solver_config = get_solver_config(mip,scip_mip)
     solving_params = configure_solver(mip)
     sampler = sampling.RepeatedCompetitionSampler("E:/neural_lns/tmp/models")
     # Create a new concrete function with the updated input signature
     solver =  solvers.NeuralDivingSolver(solver_config)
     solver._sampler = sampler
-    solvers.run_solver(mip,solving_params,solver)
+    sol_data, solve_stats = solvers.run_solver(mip,solving_params,solver)
 
 if __name__ == "__main__":
     main()

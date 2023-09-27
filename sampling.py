@@ -23,11 +23,11 @@ import tensorflow.compat.v2 as tf
 import tensorflow_probability as tfp
 
 
-class Assignment(NamedTuple):
-  names: List[str]
-  lower_bounds: List[int]
-  upper_bounds: List[int]
-
+def get_sample(model: Any, gt: graphs.GraphsTuple,
+                  node_indices: np.ndarray) ->  np.ndarray:
+  node_indices = tf.convert_to_tensor(node_indices)
+  logit,sample,probas = model.greedy_sample(gt, node_indices)
+  return sample.numpy()
 
 def sample_probas(model: Any, gt: graphs.GraphsTuple,
                   node_indices: np.ndarray) -> np.ndarray:
@@ -44,6 +44,11 @@ def sample_probas(model: Any, gt: graphs.GraphsTuple,
   node_indices = tf.convert_to_tensor(node_indices)
   logit,sample,probas = model.greedy_sample(gt, node_indices)
   return probas.numpy()
+
+class Assignment(NamedTuple):
+  names: List[str]
+  lower_bounds: List[int]
+  upper_bounds: List[int]
 
 
 class BaseSampler(metaclass=abc.ABCMeta):
@@ -127,8 +132,8 @@ class RandomSampler(BaseSampler):
 
     var_names_to_assign = []
     var_values_to_assign = []
-
     for accept, val, name in zip(accept_mask, var_values, var_names):
+      
       if accept:
         var_name = name.decode() if isinstance(name, bytes) else name
         var_names_to_assign.append(var_name)
@@ -175,7 +180,6 @@ class RepeatedCompetitionSampler(BaseSampler):
     proba = sample_probas(self.model, graphs_tuple, node_indices)
     proba = np.squeeze(proba) + eps
     num_top_vars = np.min([num_unassigned_vars, len(proba)])
-
     unfixed_variables = set()
     for _ in range(int(num_top_vars)):
       # NB `proba` has the probabilities for the variables corresponding to
@@ -197,7 +201,7 @@ class RepeatedCompetitionSampler(BaseSampler):
       # Leave the non-binary vars unfixed, too.
       fix_var = idx not in unfixed_variables and idx in node_indices
       accept_mask.append(fix_var)
-
+    
     var_names_to_assign = []
     var_values_to_assign = []
 
@@ -206,7 +210,7 @@ class RepeatedCompetitionSampler(BaseSampler):
         var_name = name.decode() if isinstance(name, bytes) else name
         var_names_to_assign.append(var_name)
         var_values_to_assign.append(val)
-
+  
     return Assignment(
         var_names_to_assign, var_values_to_assign, var_values_to_assign)
 

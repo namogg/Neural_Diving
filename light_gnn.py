@@ -23,14 +23,6 @@ import sys
 sys.path.append("./")
 from neural_lns import layer_norm
 
-# GT_SPEC = graphs.GraphsTuple(
-#     nodes=tf.TensorSpec(shape=(None, 34), dtype=tf.float32, name='nodes'),
-#     edges=tf.TensorSpec(shape=(None, 1), dtype=tf.float32, name='edges'),
-#     receivers=tf.TensorSpec(shape=(None,), dtype=tf.int32, name='receivers'),
-#     senders=tf.TensorSpec(shape=(None,), dtype=tf.int32, name='senders'),
-#     globals=tf.TensorSpec(shape=(), dtype=tf.float32, name='globals'),
-#     n_node=tf.TensorSpec(shape=(None,), dtype=tf.int32, name='n_node'),
-#     n_edge=tf.TensorSpec(shape=(None,), dtype=tf.int32, name='n_edge'))
 GT_SPEC = graphs.GraphsTuple(
     nodes=tf.TensorSpec(shape=(None, 34), dtype=tf.float32, name='nodes'),
     edges=tf.TensorSpec(shape=(None, 1), dtype=tf.float32, name='edges'),
@@ -119,8 +111,6 @@ class LightGNN(snt.Module):
     nodes = self._input_embedding_model(graph.nodes)
     for layer in self._layers:
       nodes = layer(nodes, adj, is_training=is_training)
-      tf.print("nodes:", nodes)
-    
     return nodes
 
   def __call__(self,

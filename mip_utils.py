@@ -100,6 +100,12 @@ class MPSolutionResponse:
   # Result of the optimization.
   status: MPSolverResponseStatus = MPSolverResponseStatus.UNKNOWN
 
+def convert_pyscipopt_solution_to_MPResponse(model,pyscip_solution, status: MPSolverResponseStatus) -> MPSolutionResponse:
+    objective_value = model.getObjVal(pyscip_solution)
+    variable_value = [model.getVal(var) for var in model.getVars()]
+    status_str = MPSolverResponseStatus(status).name
+    return MPSolutionResponse(objective_value, variable_value, status_str, status)
+
 def convert_mip_to_pyscipmodel(mip_model):
     # Create a new SCIP model
     model = scip.Model(mip_model.name)

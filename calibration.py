@@ -16,7 +16,7 @@
 
 import abc
 from typing import Optional
-
+import time
 
 class Timer(abc.ABC):
   """Class describing the API that need to be implemented for the Timer.
@@ -34,16 +34,20 @@ class Timer(abc.ABC):
       the elapsed time that is calibrated to the machine speed.
   """
 
+  def __init__(self):
+      self.start_time = None
+      self.end_time = None
   def start_and_wait(self):
-    raise NotImplementedError('start_and_wait method has to be implemented')
+      self.start_time = time.time()
+      return self.start_time
+      
 
   def terminate_and_wait(self):
-    raise NotImplementedError('terminate_and_wait method has to be implemented')
+      self.end_time = time.time()
+      return self.end_time
 
   def elapsed_real_time(self) -> float:
-    raise NotImplementedError(
-        'elapsed_real_time property has to be implemented')
+      return self.end_time - self.start_time
 
   def elapsed_calibrated_time(self) -> Optional[float]:
-    raise NotImplementedError(
-        'elapsed_calibrated_time property has to be implemented')
+      return self.end_time - self.start_time
