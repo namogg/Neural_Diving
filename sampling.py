@@ -43,7 +43,7 @@ def sample_probas(model: Any, gt: graphs.GraphsTuple,
   """
   node_indices = tf.convert_to_tensor(node_indices)
   logit,sample,probas = model.greedy_sample(gt, node_indices)
-  return probas.numpy()
+  return sample.numpy(),probas.numpy()
 
 class Assignment(NamedTuple):
   names: List[str]
@@ -176,8 +176,10 @@ class RepeatedCompetitionSampler(BaseSampler):
     Returns:
       Sampler's assignment.
     """
+
     tf.config.run_functions_eagerly(True) 
-    proba = sample_probas(self.model, graphs_tuple, node_indices)
+    sample,proba = sample_probas(self.model, graphs_tuple, node_indices)
+    var_values = sample
     proba = np.squeeze(proba) + eps
     num_top_vars = np.min([num_unassigned_vars, len(proba)])
     unfixed_variables = set()
@@ -204,7 +206,7 @@ class RepeatedCompetitionSampler(BaseSampler):
     
     var_names_to_assign = []
     var_values_to_assign = []
-
+    print(max(var_values))
     for accept, val, name in zip(accept_mask, var_values, var_names):
       if accept:
         var_name = name.decode() if isinstance(name, bytes) else name

@@ -412,7 +412,6 @@ class FeatureExtractor():
                 'edge_col_idxs': edge_col_idxs,
                 'edge_feats': edge_feats,
             }
-
         return constraint_features, edge_features, variable_features, edge_feat_indices
 
     def get_state(model, prev_state=None):

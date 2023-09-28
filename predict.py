@@ -78,8 +78,8 @@ def configure_solver(mip) -> ml_collections.ConfigDict:
 def main():
     mip,scip_mip = get_mip("E:/benchmark/30n20b8.mps")
     #scip_mip.setPresolve(SCIP_PARAMSETTING.OFF)
-    #scip_mip.setIntParam("limits/solutions", 1)
-    #scip_mip.optimize()
+    scip_mip.setIntParam("limits/solutions", 1)
+    scip_mip.optimize()
     #scip_mip.setIntParam("parallel/maxnthreads", 12)
     solver_config = get_solver_config(mip,scip_mip)
     solving_params = configure_solver(mip)
