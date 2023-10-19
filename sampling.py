@@ -23,12 +23,6 @@ import tensorflow.compat.v2 as tf
 import tensorflow_probability as tfp
 
 
-def get_sample(model: Any, gt: graphs.GraphsTuple,
-                  node_indices: np.ndarray) ->  np.ndarray:
-  node_indices = tf.convert_to_tensor(node_indices)
-  logit,sample,probas = model.greedy_sample(gt, node_indices)
-  return sample.numpy()
-
 def sample_probas(model: Any, gt: graphs.GraphsTuple,
                   node_indices: np.ndarray) -> np.ndarray:
   """Obtain variable probabilities from a conditionally independent model.
@@ -41,7 +35,7 @@ def sample_probas(model: Any, gt: graphs.GraphsTuple,
   Returns:
     np.ndarray of probabilities of the sample.
   """
-  node_indices = tf.convert_to_tensor(node_indices)
+  node_indices = tf.convert_to_tensor(node_indices,dtype = tf.int32)
   logit,sample,probas = model.greedy_sample(gt, node_indices)
   return sample.numpy(),probas.numpy()
 

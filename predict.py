@@ -5,6 +5,8 @@ import tensorflow.compat.v2 as tf
 import sys 
 import math
 import pyscipopt as scip
+import matplotlib
+import matplotlib.pyplot  as plt
 sys.path.append("./")
 from neural_lns import solvers 
 from neural_lns import solving_utils
@@ -13,15 +15,13 @@ from neural_lns import calibration
 from neural_lns import sampling
 from neural_lns import solution_data
 from neural_lns import data_utils
-from neural_lns import calibration
+from neural_lns import calibration , event
 from graph_nets import graphs
 from pyscipopt import Model, Eventhdlr, SCIP_RESULT, SCIP_EVENTTYPE, SCIP_PARAMSETTING, SCIP_STAGE
-tf.config.run_functions_eagerly(True)
+from predict_config import get_solver_config,configure_solver, get_mip
+matplotlib.use("Agg")
 "Create MIP instance"
-def get_mip(path):
-    scip_model = mip_utils.read_lp(path)
-    mip = mip_utils.convert_pyscipmodel_to_mip(scip_model)
-    return mip,scip_model
+
 """
 Get config
 """
@@ -39,55 +39,50 @@ import ml_collections
 #     solving_params.mip = get_mip()
 #     return solving_params
 
-def get_solver_config(mip,scip_mip):
-    solver_config = ml_collections.ConfigDict()
-    solver_config.solver_name = 'neural_ns'
-    solver_config.predict_config = ml_collections.ConfigDict()
-    solver_config.predict_config.sampler_config = ml_collections.ConfigDict()
-    solver_config.scip_solver_config = ml_collections.ConfigDict()
-    solver_config.scip_solver_config.params = ml_collections.ConfigDict()
-    solver_config.scip_solver_config.params.scip_mip =  scip_mip
-    solver_config.scip_solver_config.params.mip =  mip
-    solver_config.predict_config.sampler_config.name = 'random'
-    solver_config.predict_config.sampler_config = ml_collections.ConfigDict()
-    solver_config.predict_config.sampler_config.params = ml_collections.ConfigDict()
-    solver_config.predict_config.extract_features_scip_config = ml_collections.ConfigDict({
-        'seed': 42,
-        'time_limit_seconds': 60 * 10,
-        'separating_maxroundsroot': 0,   # No cuts
-        'conflict_enable': False,        # No additional cuts
-        'heuristics_emphasis': 'off',    # No heuristics
-        'mip' : mip,
-        'scip_mip' : scip_mip
-    })
-    solver_config.preprocessor_configs = None
-    solver_config.enable_restart = False
-    solver_config.num_solve_steps = 5
-    solver_config.perc_unassigned_vars = 0
-    solver_config.temperature = 0.9
-    solver_config.write_intermediate_sols = False
-    return solver_config
-def configure_solver(mip) -> ml_collections.ConfigDict:
-    config = ml_collections.ConfigDict()
-    config.mip = mip
-    # Preprocessor configuration (optional)
-    config.preprocessor_configs = None 
-    config.write_intermediate_sols = True  # Set to True or False as desired
-    return config
+
+
+def plot_array_as_line(data, xlabel="Node", ylabel="Gap", title="Gap Plot"):
+    """
+    Plots a 1D array as a line plot.
+
+    Args:
+    data (list or numpy.ndarray): The 1D array to plot.
+    xlabel (str): Label for the x-axis.
+    ylabel (str): Label for the y-axis.
+    title (str): Title for the plot.
+    """
+    x = np.arange(len(data))  # Create x-coordinates based on array indices
+    plt.plot(x, data, label="Data")
+    plt.ylim(0, 6)
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.title(title)
+
+    plt.legend()
+    plt.grid(True)
+    plt.savefig("E:/plot/plot_SCIP.png")
 
 def main():
     mip,scip_mip = get_mip("E:/benchmark/30n20b8.mps")
     #scip_mip.setPresolve(SCIP_PARAMSETTING.OFF)
-    scip_mip.setIntParam("limits/solutions", 1)
-    scip_mip.optimize()
+    #scip_mip.setIntParam("limits/solutions", 1)
+    #scip_mip.optimize()
     #scip_mip.setIntParam("parallel/maxnthreads", 12)
+    node_event = event.NodeEvent()
+    scip_mip.includeEventhdlr(node_event, "NodeEvent", "python event handler to catch Node Solved")
     solver_config = get_solver_config(mip,scip_mip)
     solving_params = configure_solver(mip)
     sampler = sampling.RepeatedCompetitionSampler("E:/neural_lns/tmp/models")
+
     # Create a new concrete function with the updated input signature
     solver =  solvers.NeuralDivingSolver(solver_config)
     solver._sampler = sampler
     sol_data, solve_stats = solvers.run_solver(mip,solving_params,solver)
+    plot_array_as_line(node_event.gaps)
+    print(sol_data)
 
 if __name__ == "__main__":
     main()
+
+
+

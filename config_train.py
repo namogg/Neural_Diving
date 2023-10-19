@@ -22,7 +22,7 @@ def get_light_gnn_model_config():
 
   # Tunable parameters
   config.params = ml_collections.ConfigDict()
-  config.params.n_layers = 10
+  config.params.n_layers = 64
   config.params.node_model_hidden_sizes = [64, 64]
   config.params.output_model_hidden_sizes = [32, 1]
   config.params.dropout = 0.1
@@ -38,18 +38,18 @@ def get_config():
   config.learning_rate = 1e-2
   config.decay_steps = 300
   config.num_train_run_steps = 10
-  config.num_train_steps = 100
+  config.num_train_steps = 1000
   config.eval_every_steps = 50
   config.eval_steps = 128
   config.grad_clip_norm = 1.0
 
   # Each entry is a pair of (<dataset_path>, <prefix>).
   config.train_datasets = [
-      ('neural_lns\data/example.tfrecord', 'train'),
+      ('/home/namogg/Neural_Diving/neural_lns/data/example.tfrecord', 'train'),
   ]
 
   config.valid_datasets = [
-      ('neural_lns/data/example.tfrecord', 'valid'),
+      ('/home/namogg/Neural_Diving/neural_lns/data/example.tfrecord', 'valid'),
   ]
   config.model_config = get_light_gnn_model_config()
   return config

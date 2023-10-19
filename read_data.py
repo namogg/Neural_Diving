@@ -15,11 +15,12 @@ def read_tfrecord(file_path):
     dataset = tf.data.TFRecordDataset(file_path)
 
     # Apply the decode function to each record
-    parsed_dataset = dataset.map(data_utils.decode_fn)
+    parsed_dataset = dataset.map(data_utils.read_and_decode)
     return parsed_dataset
 
 def get_example():
-        dataset = read_tfrecord("neural_lns/data/example.tfrecord")
+        #dataset = read_tfrecord("neural_lns/data/example.tfrecord")
+        dataset = data_utils.get_dataset("neural_lns/data/example1.tfrecord")
         for example in dataset:
             variable_features = example['variable_features']
             constraint_features = example['constraint_features']
@@ -36,3 +37,6 @@ def get_example():
             variable_names = example['variable_names']
             variable_ubs = example['variable_ubs']
             return example
+        
+if __name__ == "__main__":
+    get_example()

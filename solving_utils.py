@@ -21,22 +21,12 @@ from typing import Any, Dict, Optional, List
 import numpy as np
 import ml_collections
 import tensorflow as tf
-
+import matplotlib.pyplot  as plt
 from neural_lns import mip_utils
 from mip_utils import MPSolverResponseStatus
 import scipy.sparse as sp
 from pyscipopt import  Eventhdlr, SCIP_EVENTTYPE, SCIP_STATUS, SCIP_PARAMSETTING,SCIP_STAGE
-
-class MyEvent(Eventhdlr):
-    def eventinit(self):
-        self.model.catchEvent(SCIP_EVENTTYPE.FIRSTLPSOLVED, self)
-
-    def eventexit(self):
-        return
-        #self.model.dropEvent(SCIP_EVENTTYPE.FIRSTLPSOLVED, self)
-
-    def eventexec(self, event):
-        self.model.interruptSolve()
+from event import MyEvent, NodeEvent
 
     
 handler = MyEvent()
@@ -52,6 +42,7 @@ class Converter:
             return 2  # CONTINUOUS
         elif vartype == "IMPLINT":
             return 3  # IMPLINT
+        
     def getBasisStatus_int(var):
         stat = var.getBasisStatus()
         if stat == "lower":
@@ -64,6 +55,7 @@ class Converter:
             return 3
         else:
             raise Exception('SCIP returned unknown base status!')
+        
     def map_status(status):
         status_mapping = {
             SCIP_STATUS.OPTIMAL: MPSolverResponseStatus.OPTIMAL.value,
@@ -121,9 +113,14 @@ class Solver(abc.ABC):
     """Solves the loaded MIP model."""
     scip_mip = solving_params.scip_mip
     scip_mip.dropEvent(SCIP_EVENTTYPE.FIRSTLPSOLVED,handler)
-    scip_mip.setIntParam("parallel/maxnthreads", 12)
-    scip_mip.setIntParam("limits/solutions", 1)
-    scip_mip.solveConcurrent()
+    #scip_mip.setIntParam("parallel/maxnthreads", 12)
+    # scip_mip.setRealParam("limits/gap", 1e-9) 
+    # scip_mip.setBoolParam("timing/clocktype", 1)
+    # start_time = time.time()
+    #scip_mip.setIntParam("limits/solutions", 1)
+    #node_event = NodeEvent()
+    #scip_mip.includeEventhdlr(node_event, "NodeEvent", "python event handler to catch Node Solved")
+    scip_mip.optimize()
     status = Converter.map_status(scip_mip.getStatus())
     solutions = scip_mip.getSols()
     for sol in solutions: 
@@ -150,8 +147,12 @@ class Solver(abc.ABC):
   def extract_lp_features_at_root(
       self, solving_params: ml_collections.ConfigDict) -> Dict[str, Any]:
     """Returns a dictionary of root node features."""
+    
+        
     mip = solving_params.mip
     scip_mip = solving_params.scip_mip
+    if(solving_params.train):
+         scip_mip.setPresolve(SCIP_PARAMSETTING.OFF)
     #scip_mip.setPresolve(SCIP_PARAMSETTING.OFF)
     #scip_mip.hideOutput()
     scip_mip.includeEventhdlr(handler, "FIRSTLPSOLVED", "python event handler to catch FIRSTLPEVENT")
@@ -167,7 +168,7 @@ class Solver(abc.ABC):
     features['best_solution_labels'] = tf.convert_to_tensor(0, dtype=tf.float64)
     features['variable_lbs'] = FeatureExtractor.extract_lower_bounds(scip_mip)
     features['edge_indices'] = FeatureExtractor.extract_edge_indices(edge_indices)
-    features['all_integer_variable_indices'] = tf.convert_to_tensor(FeatureExtractor.extract_integer_indices(scip_mip), dtype=tf.float64)
+    features['all_integer_variable_indices'] = tf.convert_to_tensor(FeatureExtractor.extract_integer_indices(scip_mip), dtype=tf.int64)
     features['edge_features_names'] = tf.convert_to_tensor("coef_normalized")
     features['variable_feature_names'] = tf.convert_to_tensor("Variable features: (age, avg_inc_val, basis_status_0, basis_status_1, basis_status_2, basis_status_3, coef_normalized, has_lb, has_ub, inc_val, reduced_cost, sol_frac, sol_is_at_lb, sol_is_at_ub, sol_val, type_0, type_1, type_2, type_3')")
     features['constraint_feature_names'] = tf.convert_to_tensor("age, bias, dualsol_val_normalized, is_tight, obj_cosine_similarity")
@@ -233,10 +234,10 @@ class FeatureExtractor():
         #         variables_index = index_map[key]
         #         edge_indices.append([constraint_index, variables_index])
         if len(edge_indices) > 0:
-            edge_indices_np = np.array(edge_indices, dtype=np.int32)
+            edge_indices_np = np.array(edge_indices, dtype=np.int64)
         else:
             # Create an empty NumPy array with the desired shape
-            edge_indices_np = np.empty((0, 2), dtype=np.int32)
+            edge_indices_np = np.empty((0, 2), dtype=np.int64)
         return np.transpose(edge_indices_np)
     
     def extract_state(model, buffer=None):

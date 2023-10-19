@@ -184,14 +184,10 @@ class NeuralLnsLightGNN(LightGNN):
   def greedy_sample(self, graph, node_indices):
     nodes = self.encode_graph(graph, False)
     logits = self.output_model(nodes)
-    tf.print(logits)
     probas = tf.math.sigmoid(tf.gather(logits, node_indices))
     sample = tf.round(probas)
     return logits,sample,probas
-  # @tf.function(input_signature=[
-  #     GT_SPEC,
-  #     tf.TensorSpec(shape=(None,), dtype=tf.int32, name='node_indices')
-  # ])
+
   @tf.function(input_signature=[
       GT_SPEC,
       tf.TensorSpec(shape=(None,), dtype=tf.int32),
@@ -202,7 +198,6 @@ class NeuralLnsLightGNN(LightGNN):
                      node_indices: tf.Tensor,
                      labels: tf.Tensor) -> tf.Tensor:
     return self(graph, False, node_indices, labels)
-
-
+  
 def get_model(**params):
   return NeuralLnsLightGNN(**params)

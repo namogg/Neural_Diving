@@ -67,12 +67,12 @@ class DatasetTuple(NamedTuple):
 def get_dataset_feature_metadata() -> Dict[str, tf.io.VarLenFeature]:
   """Returns the schema of the data for writing Neural LNS datasets."""
   features = {
-      'constraint_features': tf.io.VarLenFeature(dtype=tf.string),
-      'edge_features': tf.io.VarLenFeature(dtype=tf.string),
+      'constraint_features': tf.io.VarLenFeature(dtype=tf.string),  # Adjust the data type to float32
+      'edge_features': tf.io.VarLenFeature(dtype=tf.string),  # Adjust the data type to float32
       'edge_indices': tf.io.VarLenFeature(dtype=tf.string),
-      'variable_features': tf.io.VarLenFeature(dtype=tf.string),
-      'variable_lbs': tf.io.VarLenFeature(dtype=tf.float32),
-      'variable_ubs': tf.io.VarLenFeature(dtype=tf.float32),
+      'variable_features': tf.io.VarLenFeature(dtype=tf.string),  # Adjust the data type to float32
+      'variable_lbs': tf.io.VarLenFeature(dtype=tf.float32),  # Adjust the data type to float32
+      'variable_ubs': tf.io.VarLenFeature(dtype=tf.float32),  # Adjust the data type to float32
       'constraint_feature_names': tf.io.VarLenFeature(dtype=tf.string),
       'variable_feature_names': tf.io.VarLenFeature(dtype=tf.string),
       'edge_features_names': tf.io.VarLenFeature(dtype=tf.string),
@@ -80,9 +80,8 @@ def get_dataset_feature_metadata() -> Dict[str, tf.io.VarLenFeature]:
       'binary_variable_indices': tf.io.VarLenFeature(dtype=tf.int64),
       'all_integer_variable_indices': tf.io.VarLenFeature(dtype=tf.int64),
       'model_maximize': tf.io.VarLenFeature(dtype=tf.int64),
-      'best_solution_labels': tf.io.VarLenFeature(dtype=tf.float32),
+      'best_solution_labels': tf.io.VarLenFeature(dtype=tf.float32),  # Adjust the data type to float32
   }
-
   return features
 
 
@@ -269,7 +268,7 @@ def apply_feature_scaling(state, labels):
   scaled_labels = tf.where(is_non_integer, labels / norm, labels)
   return state, scaled_labels
 
-
+            
 def decode_fn(record_bytes):
   """Decode a tf.train.Example.
 
@@ -321,6 +320,14 @@ def decode_fn(record_bytes):
 
   return parsed_example
 
+def read_and_decode(record_bytes):
+    features = tf.parse_example(
+        record_bytes,
+        # Defaults are not specified since both keys are required.
+        features=get_dataset_feature_metadata()
+        )
+    return features
+
 
 def extract_data(state: Dict[str, Any], scale_features: bool = False):
   """Create a DatasetTuple for each MIP instance."""
@@ -369,3 +376,28 @@ def get_dataset(input_path: str,
 
   data_fn = functools.partial(extract_data, scale_features=scale_features)
   return ds.map(decode_fn).map(data_fn)
+
+
+
+def serialized_example(features):
+  # Tạo dictionary cho features_descrip
+  features_descrip = {
+      #'constraint_features': tf.train.Feature(float_list=tf.train.FloatList(value=[features['constraint_features'].numpy()])),
+      'constraint_features': tf.train.Feature(bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(features['constraint_features']).numpy()])),
+      'edge_features': tf.train.Feature(bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(features['edge_features']).numpy()])),
+      'edge_indices': tf.train.Feature(bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(features['edge_indices']).numpy()])),
+      'variable_features': tf.train.Feature(bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(features['variable_features']).numpy()])),
+      'variable_lbs': tf.train.Feature(float_list=tf.train.FloatList(value=features['variable_lbs'])),
+      'variable_ubs': tf.train.Feature(float_list=tf.train.FloatList(value=features['variable_ubs'])),
+      'constraint_feature_names': tf.train.Feature(bytes_list=tf.train.BytesList(value=[features['constraint_feature_names'].numpy()])),
+      'variable_feature_names': tf.train.Feature(bytes_list=tf.train.BytesList(value=[features['variable_feature_names'].numpy()])),
+      'edge_features_names': tf.train.Feature(bytes_list=tf.train.BytesList(value=[features['edge_features_names'].numpy()])),
+      'variable_names': tf.train.Feature(bytes_list=tf.train.BytesList(value=features['variable_names'].numpy())),
+      'binary_variable_indices': tf.train.Feature(int64_list=tf.train.Int64List(value=features['binary_variable_indices'])),
+      'all_integer_variable_indices': tf.train.Feature(int64_list=tf.train.Int64List(value=features['all_integer_variable_indices'].numpy())),
+      'model_maximize': tf.train.Feature(int64_list=tf.train.Int64List(value=[int(features['model_maximize'])])),
+      'best_solution_labels': tf.train.Feature(float_list=tf.train.FloatList(value=[features['best_solution_labels'].numpy()]))
+  }
+
+  example_proto = tf.train.Example(features=tf.train.Features(feature=features_descrip))
+  return example_proto.SerializeToString()
