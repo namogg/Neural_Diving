@@ -15,6 +15,7 @@
 """MIP utility functions."""
 import pyscipopt as scip
 import copy
+from pyscipopt import tsp
 import dataclasses
 import enum
 import math
@@ -25,7 +26,7 @@ import numpy as np
 
 from neural_lns import sampling
 
-
+scip.tsp
 class MPSolverResponseStatus(enum.Enum):
   """Enum of solver statuses."""
   OPTIMAL = 0
@@ -123,57 +124,93 @@ def convert_mip_to_pyscipmodel(mip_model):
             vtype="INTEGER" if var_data.is_integer else "CONTINUOUS",
             name=var_data.name
         )
-        var_dict[id(var)] = var
+        var_dict[var.name] = id(var)
     for constraint_data in mip_model.constraint:
         # Create an empty list to store the individual terms
-        terms = []
+
+        var_terms = []
+        coeiff_term = []
         # Iterate over the var_index and coefficient attributes
         for var_index, coefficient in zip(constraint_data.var_index, constraint_data.coefficient):
-            var_name = mip_model.variable[var_index].name
-            
-        # Ensure that the variable name exists in the var_dict
-            if var_name in var_dict:
-                var_term = coefficient * var_dict[var_name]
-                terms.append(var_term)
-            lin_expr = scip.quicksum(terms)
-        model.addCons(constraint_data.lower_bound <= (lin_expr <= constraint_data.upper_bound), name=constraint_data.name)
+            var_in_constraint = model.getVars()[var_index]
+            var_terms.append(var_in_constraint)
+            coeiff_term.append(coefficient)
+        
+        lin_expr = scip.quicksum(coeiff_term[i]*var_terms[i]
+                                 for i in range(len(var_terms)))
+        model.addCons(constraint_data.lower_bound <= (lin_expr <= constraint_data.upper_bound), name=str(constraint_data.name))
     return model
 
 
-    
-def tighten_variable_bounds(mip: Any,
+def tighten_variable_bounds(scip_mip: scip.Model,
                             names: List[str],
                             lbs: List[float],
                             ubs: List[float]):
-  """Tightens variables of the given MIP in-place.
+    """Tightens variables of the given MIP in-place.
 
-  Args:
-    mip: Input MIP.
-    names: List of variable names to tighten.
-    lbs: List of lower bounds, in same order as names.
-    ubs: List of lower bounds, in same order as names.
-  """
-  if len(names) != len(lbs) or len(lbs) != len(ubs):
-    raise ValueError(
-        "Names, lower and upper bounds should have the same length")
-  # Convert the list of tensors to a list of strings
-  name_list = [name.numpy().decode("utf-8") for name in names]
-  name_to_bounds = {}
-  for name, lb, ub in zip(name_list, lbs, ubs):
-    name = name.decode() if isinstance(name, bytes) else name
-    name_to_bounds[name] = (lb, ub)
+    Args:
+      scip_mip: Input SCIP MIP model.
+      names: List of variable names to tighten.
+      lbs: List of lower bounds, in the same order as names.
+      ubs: List of upper bounds, in the same order as names.
+    """
 
-  c = 0
-  for v in mip.variable:
-    name = v.name.decode() if isinstance(v.name, bytes) else v.name
-    if name in name_to_bounds:
-      lb, ub = name_to_bounds[name]
-      v.lower_bound = max(lb, v.lower_bound)
-      v.upper_bound = min(ub, v.upper_bound)
-      c += 1
+    if len(names) != len(lbs) or len(lbs) != len(ubs):
+        raise ValueError("Names, lower and upper bounds should have the same length")
+    name_list = [name.numpy().decode("utf-8") for name in names]
+    name_to_bounds = {}
+    for name, lb, ub in zip(name_list, lbs, ubs):
+        name_to_bounds[name] = (lb, ub)
 
-  logging.info("Tightened %s vars", c)
-  return c
+    c = 0
+
+    for v in scip_mip.getVars(scip_mip.getLPColsData()):
+        name = v.name
+        if name in name_to_bounds:
+            lb, ub = name_to_bounds[name]
+            lb_local, ub_local = v.getLbLocal(), v.getUbLocal()
+            new_lb, new_ub = max(lb, lb_local), min(ub, ub_local)
+            scip_mip.tightenVarLb(v, new_lb)
+            scip_mip.tightenVarUb(v, new_ub)
+            print(f"Tighten {c} variable. Variable {v.name} tighten to {new_lb}, {new_ub}")
+            c += 1
+    logging.info("Tightened %s vars", c)
+    return c
+
+
+# def tighten_variable_bounds(mip: Any,
+#                             names: List[str],
+#                             lbs: List[float],
+#                             ubs: List[float]):
+#   """Tightens variables of the given MIP in-place.
+
+#   Args:
+#     mip: Input MIP.
+#     names: List of variable names to tighten.
+#     lbs: List of lower bounds, in same order as names.
+#     ubs: List of lower bounds, in same order as names.
+#   """
+#   if len(names) != len(lbs) or len(lbs) != len(ubs):
+#     raise ValueError(
+#         "Names, lower and upper bounds should have the same length")
+#   # Convert the list of tensors to a list of strings
+#   name_list = [name.numpy().decode("utf-8") for name in names]
+#   name_to_bounds = {}
+#   for name, lb, ub in zip(name_list, lbs, ubs):
+#     name = name.decode() if isinstance(name, bytes) else name
+#     name_to_bounds[name] = (lb, ub)
+
+#   c = 0
+#   for v in mip.variable:
+#     name = v.name.decode() if isinstance(v.name, bytes) else v.name
+#     if name in name_to_bounds:
+#       lb, ub = name_to_bounds[name]
+#       v.lower_bound = max(lb, v.lower_bound)
+#       v.upper_bound = min(ub, v.upper_bound)
+#       c += 1
+
+#   logging.info("Tightened %s vars", c)
+#   return c
 
 
 def is_var_binary(variable: Any) -> bool:
@@ -238,6 +275,8 @@ def add_binary_invalid_cut(mip: Any,
 
 def make_sub_mip(mip: Any, assignment: sampling.Assignment):
   """Creates a sub-MIP by tightening variables and applying cut."""
+  #sub_mip = copy.deepcopy(mip)
+  #sub_mip = scip.Model(sourceModel = mip, globalcopy = True, origcopy = True)
   sub_mip = mip
   num_tightened_var = tighten_variable_bounds(sub_mip, assignment.names,
                           assignment.lower_bounds, assignment.upper_bounds)

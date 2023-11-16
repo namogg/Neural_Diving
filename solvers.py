@@ -28,7 +28,7 @@ from neural_lns import mip_utils
 from neural_lns import preprocessor
 from neural_lns import sampling
 from neural_lns import solution_data
-from neural_lns import read_data
+from script import read_data
 from neural_lns import solving_utils
 
 
@@ -293,10 +293,8 @@ def predict_and_create_sub_mip(
   var_names = features['variable_names']
   variable_lbs = features['variable_lbs']
   variable_ubs = features['variable_ubs']
-  #var_values = features["variable_features"][:,14]
   graphs_tuple = data_utils.get_graphs_tuple(features)
-  #var_values = sampling.get_sample(sampler.model, graphs_tuple, node_indices)
-  num_unassigned_vars = len(node_indices)/2
+  num_unassigned_vars = len(node_indices)*(1 - config.percentage_predict_vars)
   assignment = sampler.sample(graphs_tuple, var_names, variable_lbs,
                               node_indices,num_unassigned_vars,
                               **config.sampler_config.params)
@@ -350,7 +348,7 @@ SOLVING_AGENT_DICT = {
 }
 
 def run_solver(
-    mip: Any, solver_running_config: ml_collections.ConfigDict,
+    scip_mip: Any, solver_running_config: ml_collections.ConfigDict,
     solver: BaseSolver
 ) -> Tuple[solution_data.BaseSolutionData, Dict[str, Any]]:
   """End-to-end MIP solving with a Solver.
@@ -376,17 +374,17 @@ def run_solver(
   # Stage 1: set up a timer
   timer = calibration.Timer()
   #timer.start_and_wait()
-
+  scip_mip = solver_running_config.scip_mip
   # Stage 2: presolve the original MIP instance
   presolver = None
-  presolved_mip = mip
+  presolved_mip = scip_mip
   if solver_running_config.preprocessor_configs is not None:
     presolver = preprocessor.Preprocessor(
         solver_running_config.preprocessor_configs)
-    _, presolved_mip = presolver.presolve(mip)
+    _, presolved_mip = presolver.presolve(scip_mip)
 
   # Stage 3: setup solution data
-  objective_type = max if mip.maximize else min
+  objective_type = max if scip_mip.getObjectiveSense()=='maximize' else min
   sol_data = solution_data.SolutionData(
       objective_type=objective_type,
       write_intermediate_sols=solver_running_config.write_intermediate_sols)

@@ -27,7 +27,7 @@ from mip_utils import MPSolverResponseStatus
 import scipy.sparse as sp
 from pyscipopt import  Eventhdlr, SCIP_EVENTTYPE, SCIP_STATUS, SCIP_PARAMSETTING,SCIP_STAGE
 from event import MyEvent, NodeEvent
-
+import pyscipopt as scip
     
 handler = MyEvent()
 class Converter:
@@ -96,13 +96,16 @@ class Solver(abc.ABC):
   def __init__(self):
         self.solutions = []
 
-  def load_model(self, mip: Any) -> SolverState:
+  def load_model(self,scip_mip) -> SolverState:
         """Loads a MIP model into the solver."""
         # Implement the logic to load the MIP model here
         # You can access the MIP model using the 'mip' parameter
         # Return the state of the solver after loading the model
         # For example:
-        self.mip_model = mip
+        if type(scip_mip) is scip.Model:
+            self.scip_mip = scip_mip
+        else: 
+            self.scip_mip = scip_mip[0]
         status = mip_utils.MPSolverResponseStatus.NOT_SOLVED
         return status
 
@@ -111,16 +114,17 @@ class Solver(abc.ABC):
       self, solving_params: ml_collections.ConfigDict
     ) -> mip_utils.MPSolverResponseStatus:
     """Solves the loaded MIP model."""
-    scip_mip = solving_params.scip_mip
-    scip_mip.dropEvent(SCIP_EVENTTYPE.FIRSTLPSOLVED,handler)
+    #solving_params.scip_mip
+    scip_mip = self.scip_mip
+    #scip_mip.dropEvent(SCIP_EVENTTYPE.FIRSTLPSOLVED,handler)
     #scip_mip.setIntParam("parallel/maxnthreads", 12)
     # scip_mip.setRealParam("limits/gap", 1e-9) 
     # scip_mip.setBoolParam("timing/clocktype", 1)
     # start_time = time.time()
-    #scip_mip.setIntParam("limits/solutions", 1)
+    scip_mip.setIntParam("limits/solutions", 1)
     #node_event = NodeEvent()
     #scip_mip.includeEventhdlr(node_event, "NodeEvent", "python event handler to catch Node Solved")
-    scip_mip.optimize()
+    scip_mip.solveConcurrent()
     status = Converter.map_status(scip_mip.getStatus())
     solutions = scip_mip.getSols()
     for sol in solutions: 
@@ -147,16 +151,14 @@ class Solver(abc.ABC):
   def extract_lp_features_at_root(
       self, solving_params: ml_collections.ConfigDict) -> Dict[str, Any]:
     """Returns a dictionary of root node features."""
-    
-        
     mip = solving_params.mip
     scip_mip = solving_params.scip_mip
     if(solving_params.train):
          scip_mip.setPresolve(SCIP_PARAMSETTING.OFF)
     #scip_mip.setPresolve(SCIP_PARAMSETTING.OFF)
     #scip_mip.hideOutput()
-    scip_mip.includeEventhdlr(handler, "FIRSTLPSOLVED", "python event handler to catch FIRSTLPEVENT")
-    scip_mip.optimize()
+    #scip_mip.includeEventhdlr(handler, "FIRSTLPSOLVED", "python event handler to catch FIRSTLPEVENT")
+    #scip_mip.optimize()
     constraint_features, edge_features, variable_features, edge_indices = FeatureExtractor.extract_state(scip_mip)
     features = {}
     

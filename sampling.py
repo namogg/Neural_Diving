@@ -181,12 +181,11 @@ class RepeatedCompetitionSampler(BaseSampler):
       # NB `proba` has the probabilities for the variables corresponding to
       # `node_indices` only. So the result of `argsort` gives us the indices of
       # the right indices in `node_indices`.
-
       round_proba = proba.copy()
       if probability_power is not None:
         np.power(round_proba, probability_power, out=round_proba)
       np.divide(round_proba, round_proba.sum(), out=round_proba)
-
+      
       var_idx = tfp.distributions.Categorical(probs=round_proba).sample()
       unfixed_variables.add(var_idx.numpy())
       proba[var_idx] = 0.
@@ -200,7 +199,6 @@ class RepeatedCompetitionSampler(BaseSampler):
     
     var_names_to_assign = []
     var_values_to_assign = []
-    print(max(var_values))
     for accept, val, name in zip(accept_mask, var_values, var_names):
       if accept:
         var_name = name.decode() if isinstance(name, bytes) else name

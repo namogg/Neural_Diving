@@ -15,7 +15,7 @@
 """Utility functions for feature extraction."""
 import functools
 from typing import Any, Dict, NamedTuple, Optional
-
+import pyscipopt as scip
 from graph_nets import graphs
 import ml_collections
 import tensorflow.compat.v2 as tf
@@ -189,7 +189,7 @@ def get_graphs_tuple(state: Dict[str, Any]) -> graphs.GraphsTuple:
 
 
 def get_features(
-    mip: mip_utils.MPModel,
+    mip: scip.Model,
     solver_params: ml_collections.ConfigDict = SCIP_FEATURE_EXTRACTION_PARAMS
     ) -> Optional[Dict[str, Any]]:
   """Extracts and preprocesses the features from the root of B&B tree."""
@@ -202,7 +202,7 @@ def get_features(
     features = mip_solver.extract_lp_features_at_root(solver_params)
 
   if features is not None and mip is not None:
-    features['model_maximize'] = mip.maximize
+    features['model_maximize'] = True if mip.getObjectiveSense() == 'maximize' else False
 
   return features
 

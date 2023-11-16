@@ -16,9 +16,8 @@
 
 import abc
 from typing import Optional, Tuple
-
-from neural_lns import mip_utils
-
+from pyscipopt import SCIP_EVENTTYPE
+from neural_lns import mip_utils, event
 
 class Preprocessor(abc.ABC):
   """Class describing the API used to access a MIP presolver.
@@ -34,7 +33,7 @@ class Preprocessor(abc.ABC):
     """Initializes the preprocessor."""
 
   def presolve(
-      self, mip: mip_utils.MPModel
+      self, scip_mip
   ) -> Tuple[mip_utils.MPSolverResponseStatus, Optional[mip_utils.MPModel]]:
     """Presolve the given MIP as MPModel.
 
@@ -46,8 +45,13 @@ class Preprocessor(abc.ABC):
       result: The MPModel of the presolved problem.
       
     """
-    self.mip_model = mip
-    return 1,mip
+    if scip_mip.getStage() == 1:
+      handler = event.MyEvent()
+      scip_mip.includeEventhdlr(handler, "FIRSTLPSOLVED", "python event handler to catch FIRSTLPEVENT")
+      scip_mip.optimize()
+      scip_mip.dropEvent(SCIP_EVENTTYPE.FIRSTLPSOLVED,handler)
+    return 1,scip_mip
+
 
   def get_original_solution(
       self,
