@@ -2,24 +2,28 @@ import ml_collections
 import mip_utils
 import os
 from typing import List
+from script import tsp
 
 def get_mip_from_file(path):
-    scip_model = mip_utils.read_lp(path)
-    mip = mip_utils.convert_pyscipmodel_to_mip(scip_model)
-    return mip,scip_model
+    if '.tsp' in os.path.basename(path): 
+        scip_model,_ = tsp.get_tsp(path)
+    else:
+        scip_model = mip_utils.read_lp(path)
+    #mip = mip_utils.convert_pyscipmodel_to_mip(scip_model)
+    return scip_model
 
 
 def get_lns_config(diving_config): 
     solver_config = ml_collections.ConfigDict()
     solver_config.diving_config = diving_config
-    solver_config.perc_unassigned_vars = 0.6
+    solver_config.perc_unassigned_vars = 0.7
     solver_config.predict_config = diving_config.predict_config
     solver_config.scip_solver_config = diving_config.scip_solver_config
     solver_config.temperature = 0.2
     return solver_config
 
 
-def get_diving_config(mip,scip_mip,train = False):
+def get_diving_config(scip_mip,train = False):
     """
     - Config cho solver: SCIP, NeuralDiving, Sampler
     """
@@ -30,7 +34,7 @@ def get_diving_config(mip,scip_mip,train = False):
     solver_config.scip_solver_config = ml_collections.ConfigDict()
     solver_config.scip_solver_config.params = ml_collections.ConfigDict()
     solver_config.scip_solver_config.params.scip_mip =  scip_mip
-    solver_config.scip_solver_config.params.mip =  mip
+    #solver_config.scip_solver_config.params.mip =  mip
     solver_config.predict_config.sampler_config.name = 'competition'
     solver_config.predict_config.sampler_config.params = ml_collections.ConfigDict()
     solver_config.predict_config.extract_features_scip_config = ml_collections.ConfigDict({
@@ -39,7 +43,7 @@ def get_diving_config(mip,scip_mip,train = False):
         'separating_maxroundsroot': 0,   # No cuts
         'conflict_enable': False,        # No additional cuts
         'heuristics_emphasis': 'off',    # No heuristics
-        'mip' : solver_config.scip_solver_config.params.mip,
+        #'mip' : solver_config.scip_solver_config.params.mip,
         'scip_mip' : solver_config.scip_solver_config.params.scip_mip,
         'train': train
     })
@@ -52,19 +56,17 @@ def get_diving_config(mip,scip_mip,train = False):
     solver_config.write_intermediate_sols = False
     return solver_config
 
-def configure_solver(mip,scip_mip) -> ml_collections.ConfigDict:
+def configure_solver(scip_mip) -> ml_collections.ConfigDict:
     """
     Config các biến để giải: MIP, preprocessor
     """
     config = ml_collections.ConfigDict()
-    config.mip = mip
+    #config.mip = mip
     config.scip_mip = scip_mip
     # Preprocessor configuration (optional)
     config.preprocessor_configs = None 
     config.write_intermediate_sols = True  # Set to True or False as desired
     return config
-
-
 
 
 def get_mips_from_folder(folder_path: str, extensions: List[str]):

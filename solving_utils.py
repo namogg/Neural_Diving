@@ -121,7 +121,7 @@ class Solver(abc.ABC):
     # scip_mip.setRealParam("limits/gap", 1e-9) 
     # scip_mip.setBoolParam("timing/clocktype", 1)
     # start_time = time.time()
-    scip_mip.setIntParam("limits/solutions", 1)
+    #scip_mip.setIntParam("limits/solutions", 1)
     #node_event = NodeEvent()
     #scip_mip.includeEventhdlr(node_event, "NodeEvent", "python event handler to catch Node Solved")
     scip_mip.solveConcurrent()
@@ -151,7 +151,6 @@ class Solver(abc.ABC):
   def extract_lp_features_at_root(
       self, solving_params: ml_collections.ConfigDict) -> Dict[str, Any]:
     """Returns a dictionary of root node features."""
-    mip = solving_params.mip
     scip_mip = solving_params.scip_mip
     if(solving_params.train):
          scip_mip.setPresolve(SCIP_PARAMSETTING.OFF)
@@ -164,7 +163,7 @@ class Solver(abc.ABC):
     
     features['variable_features'] = tf.convert_to_tensor(variable_features['values'], dtype=tf.float64)
     features['binary_variable_indices'] = np.array(FeatureExtractor.extract_binary_indices(scip_mip))
-    features['model_maximize'] = mip.maximize
+    features['model_maximize'] = True if scip_mip.getObjectiveSense() == 'maximize' else False
     features['variable_names'] = tf.convert_to_tensor(FeatureExtractor.extract_name_feature(scip_mip))
     features['constraint_features'] = tf.convert_to_tensor(constraint_features['values'], dtype=tf.float64)
     features['best_solution_labels'] = tf.convert_to_tensor(0, dtype=tf.float64)
@@ -246,7 +245,7 @@ class FeatureExtractor():
         """
         Compute a bipartite graph representation of the solver. In this
         representation, the variables and constraints of the MILP are the
-        left- and right-hand side nodes, and an edge links two nodes iff the
+        left- and right-hand side nodes, and an edge links two nodes if the
         variable is involved in the constraint. Both the nodes and edges carry
         features.
 

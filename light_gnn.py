@@ -100,7 +100,7 @@ class LightGNN(snt.Module):
     self._input_embedding_model = snt.Linear(
         self._node_model_hidden_sizes[-1], name='input_embedding')
     self.output_model = snt.nets.MLP(self._output_model_hidden_sizes,
-                                     name='output_model')
+                                     name='output_model') 
 
   def encode_graph(self,
                    graph: graphs.GraphsTuple,

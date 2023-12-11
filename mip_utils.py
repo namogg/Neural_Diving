@@ -15,7 +15,7 @@
 """MIP utility functions."""
 import pyscipopt as scip
 import copy
-from pyscipopt import tsp
+
 import dataclasses
 import enum
 import math
@@ -26,7 +26,6 @@ import numpy as np
 
 from neural_lns import sampling
 
-scip.tsp
 class MPSolverResponseStatus(enum.Enum):
   """Enum of solver statuses."""
   OPTIMAL = 0
@@ -172,7 +171,6 @@ def tighten_variable_bounds(scip_mip: scip.Model,
             new_lb, new_ub = max(lb, lb_local), min(ub, ub_local)
             scip_mip.tightenVarLb(v, new_lb)
             scip_mip.tightenVarUb(v, new_ub)
-            print(f"Tighten {c} variable. Variable {v.name} tighten to {new_lb}, {new_ub}")
             c += 1
     logging.info("Tightened %s vars", c)
     return c

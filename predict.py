@@ -19,6 +19,7 @@ from neural_lns import calibration , event
 from graph_nets import graphs
 from pyscipopt import Model, Eventhdlr, SCIP_RESULT, SCIP_EVENTTYPE, SCIP_PARAMSETTING, SCIP_STAGE
 from predict_config import get_diving_config,configure_solver, get_mip_from_file, get_lns_config
+from script import tsp
 matplotlib.use("Agg")
 "Create MIP instance"
 
@@ -27,7 +28,8 @@ Get config
 """
 import ml_collections
 
-mip,scip_mip = get_mip_from_file("E:/benchmark/30n20b8.mps")
+scip_mip = get_mip_from_file("E:/TSP/ga_for_tsp-main/data/a280.tsp")
+
 
 def plot_array_as_line(data, xlabel="Node", ylabel="Gap", title="Gap Plot"):
     """
@@ -50,6 +52,8 @@ def plot_array_as_line(data, xlabel="Node", ylabel="Gap", title="Gap Plot"):
     plt.grid(True)
     plt.savefig("E:/plot/plot_SCIP.png")
 
+def load_tsp(path): 
+    return tsp.get_tsp(path)
 
 def main():
     #scip_mip.setPresolve(SCIP_PARAMSETTING.OFF)
@@ -57,12 +61,13 @@ def main():
     #scip_mip.setIntParam("parallel/maxnthreads", 12)
     node_event = event.NodeEvent()
     scip_mip.includeEventhdlr(node_event, "NodeEvent", "python event handler to catch Node Solved")
+    scip_mip.setParam("limits/time", 8200)
     #scip_mip.optimize()
     #plot_array_as_line(node_event.gaps)
     #print(sol_data)
-    diving_config = get_diving_config(mip,scip_mip)
+    diving_config = get_diving_config(scip_mip)
     lns_config = get_lns_config(diving_config)
-    solving_params = configure_solver(mip,scip_mip)
+    solving_params = configure_solver(scip_mip)
     sampler = sampling.RepeatedCompetitionSampler("E:/neural_lns/tmp/models")
 
     # Create a new concrete function with the updated input signature
