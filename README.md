@@ -2,7 +2,7 @@
 
 ### Overview
 
-This project implement Neural Diving model from DeepMind combine with SCIP to solve large scale MIP. The code is inspired by Large Neighborhood Search Algorithm from DeepMind. 
+This project implement Neural Diving, a model from DeepMind to solve large scale Mixed Integer Programming Problem. Neural Diving use a Graph Neural Network to generate partial variable assignment and create sub-problem, the remaining variable can be assign by using SCIP. The code is inspired by Large Neighborhood Search Algorithm from DeepMind. To install SCIP, please follow this [installation](https://github.com/scipopt/PySCIPOpt/blob/master/INSTALL.md) guide.
 
 Overview of the component
 
