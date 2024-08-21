@@ -2,7 +2,7 @@
 
 ### Overview
 
-This project implement Neural Diving model from DeepMind to solve large scale MIP.
+This project implement Neural Diving model from DeepMind combine with SCIP to solve large scale MIP. The code is inspired by Large Neighborhood Search Algorithm from DeepMind. 
 
 Overview of the component
 
@@ -30,8 +30,6 @@ Overview of the component
 To install the dependencies of this implementation, please run:
 
 ```
-python3 -m venv /tmp/neural_lns_venv
-source /tmp/neural_lns_venv/bin/activate
 pip install -U pip
 pip install -r requirements.txt
 ```
@@ -50,3 +48,10 @@ pip install -r requirements.txt
    cd <parent-directory-of-neural_lns>
    python3 -m neural_lns.train
    ```
+
+## Reference 
+Paper: [Solving Mixed Integer Programs Using Neural Networks](https://arxiv.org/abs/2012.13349)
+Reference Code: [neural_lns](https://github.com/google-deepmind/neural_lns)
+
+## Disclaimer
+
