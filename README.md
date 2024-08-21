@@ -45,8 +45,8 @@ pip install -r requirements.txt
 3. Train the neural neighbourhood selection model using:
 
    ```
-   cd <parent-directory-of-neural_lns>
-   python3 -m neural_lns.train
+   cd <parent-directory-of-neural_diving>
+   python3 -m neural_diving.train
    ```
 
 ## Reference 
